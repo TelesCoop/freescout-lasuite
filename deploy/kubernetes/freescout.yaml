@@ -42,7 +42,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: freescout
-          image: ghcr.io/telescoop/docker-freescout:sha-a068d82
+          image: ghcr.io/telescoop/docker-freescout:sha-5c3c3ee
           ports:
             - name: http
               containerPort: 8080
