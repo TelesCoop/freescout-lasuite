@@ -10,8 +10,7 @@ A [FreeScout](https://freescout.net/) image that runs entirely without root, for
 - If a service keeps crashing, the container stops so the orchestrator restarts it.
 - Persistent data lives in **`/data`**:
   - `.env`, which holds the `APP_KEY`;
-  - `storage/`: attachments, sessions, logs;
-  - `modules/`.
+  - `storage/`: attachments, sessions, logs.
 
 ## Images
 
@@ -99,9 +98,9 @@ What [`deploy/kubernetes/freescout.yaml`](deploy/kubernetes/freescout.yaml) does
 
 `modules/` is a git submodule pinned to a commit of the private [suitenumerique/freescout-modules](https://github.com/suitenumerique/freescout-modules) repository, which currently provides `PersonalTemplates` and `Presence`. Clone with `git clone --recurse-submodules`, or run `git submodule update --init` in an existing clone.
 
-Every module of `modules/` is baked into the image and registered at startup with `freescout:module-install <alias>`, which runs its migrations and publishes its assets. Activate each module once in *Manage » Modules*; the choice is stored in the database.
+Modules live in the image only: the build copies every module of `modules/` and links its public assets, and fails when `modules/` is empty. At startup, only their migrations run, with `module:migrate`. Activate each module once in *Manage » Modules*; the choice is stored in the database.
 
-Modules baked into the image replace their copy in `/data/modules` on every new container: the image is the source of truth. Modules installed from the web interface are kept.
+Modules installed from the web interface are lost when the container is recreated: add them to `modules/` instead.
 
 **Updating the modules:**
 
@@ -123,7 +122,7 @@ The `.github/workflows/build-test.yml` workflow runs these tests and publishes o
 - `tests/e2e.sh <image>` runs the image with Docker and MariaDB, with `--cap-drop ALL`. It checks:
   - the admin login;
   - that no process runs as root;
-  - that the modules are migrated and their assets published;
+  - that the modules are migrated and their assets linked;
   - that after the container is recreated, the `APP_KEY` is kept and the admin is not created again.
 - `tests/k8s.sh <image>` deploys the unmodified manifest to a [kind](https://kind.sigs.k8s.io/) cluster, in a namespace enforcing the `restricted` Pod Security standard, and waits for the deployment to be ready.
 
