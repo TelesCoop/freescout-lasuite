@@ -3,205 +3,176 @@ set -e
 
 APP_DIR=/var/www/html
 DATA_DIR=/data
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+ENV_FILE="${DATA_DIR}/.env"
 
 log() { printf '[entrypoint] %s\n' "$*"; }
 
-escape_regex() { printf '%s' "$1" | sed 's/[.[\*^$]/\\&/g'; }
-
-set_env() {
-    local key="$1" value="$2" env_file="${APP_DIR}/.env"
-    local escaped_key
-    escaped_key=$(escape_regex "${key}")
-    sed -i "/^${escaped_key}=/d" "${env_file}" 2>/dev/null || true
-    printf '%s=%s\n' "${key}" "${value}" >> "${env_file}"
+fail() {
+    printf '[entrypoint] ERROR: %s\n' "$*" >&2
+    exit 1
 }
 
+require_var() {
+    eval "required_value=\${$1:-}"
+    [ -n "${required_value}" ] || fail "$1 is required: $2"
+}
+
+artisan() { php "${APP_DIR}/artisan" "$@" --no-interaction; }
+
 del_env() {
-    local key="$1" env_file="${APP_DIR}/.env"
     local escaped_key
-    escaped_key=$(escape_regex "${key}")
-    sed -i "/^${escaped_key}=/d" "${env_file}" 2>/dev/null || true
+    escaped_key=$(printf '%s' "$1" | sed 's/[][\.*^$/]/\\&/g')
+    sed -i "/^${escaped_key}=/d" "${ENV_FILE}"
+}
+
+set_env() {
+    local escaped_value
+    escaped_value=$(printf '%s' "$2" | sed 's/[\\"]/\\&/g')
+    del_env "$1"
+    printf '%s="%s"\n' "$1" "${escaped_value}" >> "${ENV_FILE}"
 }
 
 resolve_file_secrets() {
-    local tmpfile
-    tmpfile=$(mktemp)
-    env | grep '_FILE=' > "${tmpfile}" 2>/dev/null || true
-    while IFS='=' read -r key value; do
-        local base_key="${key%_FILE}"
-        if [ -f "${value}" ]; then
-            export "${base_key}=$(cat "${value}")"
-        fi
-    done < "${tmpfile}"
-    rm -f "${tmpfile}"
+    local env_line file_var secret_path
+    while IFS= read -r env_line; do
+        [ -n "${env_line}" ] || continue
+        file_var="${env_line%%=*}"
+        secret_path="${env_line#*=}"
+        [ -f "${secret_path}" ] || fail "${file_var} points to a missing file: ${secret_path}"
+        export "${file_var%_FILE}=$(cat "${secret_path}")"
+    done <<EOF
+$(env | sed -n '/^[A-Za-z_][A-Za-z0-9_]*_FILE=/p')
+EOF
 }
 
-# ---------------------------------------------------------------------------
-# Data directories & symlinks
-# ---------------------------------------------------------------------------
-
-setup_data() {
-    mkdir -p "${DATA_DIR}/storage" "${DATA_DIR}/modules"
-
-    if [ ! -d "${DATA_DIR}/storage/app" ]; then
-        log "Initialising persistent storage from app skeleton"
-        cp -a "${APP_DIR}/storage/." "${DATA_DIR}/storage/"
+# Storage never overwrites existing files; modules shipped in the image replace their volume copy.
+link_persistent_dir() {
+    local image_dir="$1" persistent_dir="$2" copy_flags="$3"
+    if [ -L "${image_dir}" ]; then
+        return
     fi
-
-    if [ -d "${APP_DIR}/storage" ] && [ ! -L "${APP_DIR}/storage" ]; then
-        rm -rf "${APP_DIR}/storage"
-    fi
-    ln -sfn "${DATA_DIR}/storage" "${APP_DIR}/storage"
-
-    if [ -d "${APP_DIR}/Modules" ] && [ ! -L "${APP_DIR}/Modules" ]; then
-        cp -a "${APP_DIR}/Modules/." "${DATA_DIR}/modules/" 2>/dev/null || true
-        rm -rf "${APP_DIR}/Modules"
-    fi
-    ln -sfn "${DATA_DIR}/modules" "${APP_DIR}/Modules"
+    mkdir -p "${persistent_dir}"
+    cp ${copy_flags} "${image_dir}/." "${persistent_dir}/"
+    rm -rf "${image_dir}"
+    ln -s "${persistent_dir}" "${image_dir}"
 }
-
-# ---------------------------------------------------------------------------
-# .env configuration
-# ---------------------------------------------------------------------------
 
 configure_env() {
-    local env_file="${APP_DIR}/.env"
+    local app_url_lowercase app_host env_line prefixed_key value
 
-    if [ ! -f "${env_file}" ]; then
-        cat > "${env_file}" <<'EOF'
-APP_NAME=FreeScout
-APP_KEY=
-APP_ENV=production
-APP_DEBUG=false
-APP_LOG=single
-APP_DISABLE_UPDATING=true
-EOF
-    fi
+    require_var APP_URL "external URL, e.g. https://freescout.example.com"
+    require_var DB_HOST "database hostname"
+    require_var DB_NAME "database name"
+    require_var DB_USER "database user"
+    require_var DB_PASS "database password"
 
-    [ -n "${APP_KEY}" ]  && set_env APP_KEY "${APP_KEY}"
-    [ -n "${APP_URL}" ]  && set_env APP_URL "${APP_URL}"
+    app_url_lowercase=$(printf '%s' "${APP_URL}" | tr '[:upper:]' '[:lower:]')
+    app_host=$(printf '%s' "${app_url_lowercase}" | sed -nE 's|^https?://([^/:]+).*|\1|p')
+    [ -n "${app_host}" ] || fail "APP_URL must start with http:// or https:// (got '${APP_URL}')"
 
-    local tz="${APP_TIMEZONE:-${TIMEZONE:-UTC}}"
-    set_env APP_TIMEZONE "${tz}"
-
-    case "${APP_URL}" in
-        http://*)  set_env SESSION_SECURE_COOKIE false ;;
-        https://*) set_env SESSION_SECURE_COOKIE true  ;;
-    esac
-
-    local app_host
-    app_host=$(echo "${APP_URL}" | sed -nE 's|^https?://([^/:]+).*|\1|p')
-    if [ -n "${app_host}" ]; then
-        set_env APP_TRUSTED_HOSTS "${app_host},localhost,127.0.0.1"
-    fi
-    set_env APP_TRUSTED_PROXIES "${APP_TRUSTED_PROXIES:-*}"
-
-    # Database
     case "${DB_TYPE:-mysql}" in
-        pgsql|postgres*) set_env DB_CONNECTION pgsql ;;
-        *)               set_env DB_CONNECTION mysql ;;
+        mysql|mariadb)   DB_CONNECTION=mysql; DB_PORT="${DB_PORT:-3306}" ;;
+        pgsql|postgres*) DB_CONNECTION=pgsql; DB_PORT="${DB_PORT:-5432}" ;;
+        *)               fail "DB_TYPE must be mysql, mariadb or pgsql (got '${DB_TYPE}')" ;;
     esac
-    [ -n "${DB_HOST}" ] && set_env DB_HOST     "${DB_HOST}"
-    [ -n "${DB_PORT}" ] && set_env DB_PORT     "${DB_PORT}"
-    [ -n "${DB_NAME}" ] && set_env DB_DATABASE "${DB_NAME}"
-    [ -n "${DB_USER}" ] && set_env DB_USERNAME "${DB_USER}"
-    [ -n "${DB_PASS}" ] && set_env DB_PASSWORD "${DB_PASS}"
 
-    # Mail
-    [ -n "${MAIL_DRIVER}" ] && set_env MAIL_DRIVER "${MAIL_DRIVER}"
-    [ -n "${MAIL_HOST}" ]   && set_env MAIL_HOST   "${MAIL_HOST}"
-    [ -n "${MAIL_PORT}" ]   && set_env MAIL_PORT   "${MAIL_PORT}"
+    touch "${ENV_FILE}"
+    ln -sfn "${ENV_FILE}" "${APP_DIR}/.env"
 
-    # Pass-through: FREESCOUT_* → strip prefix → .env
-    local tmpfile
-    tmpfile=$(mktemp)
-    env | grep '^FREESCOUT_' | grep -v '_FILE=' > "${tmpfile}" 2>/dev/null || true
-    while IFS='=' read -r key value; do
-        local laravel_key="${key#FREESCOUT_}"
+    set_env APP_URL "${APP_URL}"
+    set_env APP_TRUSTED_HOSTS "${app_host},localhost,127.0.0.1"
+    set_env APP_TIMEZONE "${TIMEZONE:-UTC}"
+    set_env APP_DISABLE_UPDATING true
+    case "${app_url_lowercase}" in
+        https://*) set_env SESSION_SECURE_COOKIE true ;;
+        *)         set_env SESSION_SECURE_COOKIE false ;;
+    esac
+
+    set_env DB_CONNECTION "${DB_CONNECTION}"
+    set_env DB_HOST "${DB_HOST}"
+    set_env DB_PORT "${DB_PORT}"
+    set_env DB_DATABASE "${DB_NAME}"
+    set_env DB_USERNAME "${DB_USER}"
+    set_env DB_PASSWORD "${DB_PASS}"
+
+    while IFS= read -r env_line; do
+        [ -n "${env_line}" ] || continue
+        prefixed_key="${env_line%%=*}"
+        value="${env_line#*=}"
         case "${value}" in
-            unset|null) del_env "${laravel_key}" ;;
-            *)          set_env "${laravel_key}" "${value}" ;;
+            ''|unset|null) del_env "${prefixed_key#FREESCOUT_}" ;;
+            *)             set_env "${prefixed_key#FREESCOUT_}" "${value}" ;;
         esac
-    done < "${tmpfile}"
-    rm -f "${tmpfile}"
+    done <<EOF
+$(env | sed -n -e '/^FREESCOUT_[A-Za-z0-9_]*_FILE=/d' -e '/^FREESCOUT_/p')
+EOF
 }
 
-# ---------------------------------------------------------------------------
-# Database readiness
-# ---------------------------------------------------------------------------
+ensure_app_key() {
+    if [ -n "${APP_KEY:-}" ]; then
+        set_env APP_KEY "${APP_KEY}"
+    elif ! grep -Eq '^APP_KEY="?base64:' "${ENV_FILE}"; then
+        log "Generating APP_KEY into ${ENV_FILE}"
+        set_env APP_KEY "base64:$(head -c 32 /dev/urandom | base64)"
+    fi
+}
 
 wait_for_db() {
-    local host="${DB_HOST}"
-    local default_port=3306
-    case "${DB_TYPE:-mysql}" in
-        pgsql|postgres*) default_port=5432 ;;
-    esac
-    local port="${DB_PORT:-${default_port}}" tries=30
-
-    if [ -z "${host}" ]; then return; fi
-    log "Waiting for database at ${host}:${port}"
-    while [ ${tries} -gt 0 ]; do
-        if php -r "@fsockopen('${host}', ${port}, \$e, \$m, 1) ? exit(0) : exit(1);" 2>/dev/null; then
-            log "Database reachable"
-            return
-        fi
-        tries=$((tries - 1))
+    local attempts=30
+    log "Waiting for database at ${DB_HOST}:${DB_PORT}"
+    until php -r 'exit(@fsockopen($argv[1], (int) $argv[2], $errno, $errstr, 1) ? 0 : 1);' -- "${DB_HOST}" "${DB_PORT}"; do
+        attempts=$((attempts - 1))
+        [ "${attempts}" -gt 0 ] || fail "database ${DB_HOST}:${DB_PORT} unreachable after 60s"
         sleep 2
     done
-    log "WARNING: database not reachable after 60s — proceeding anyway"
 }
 
-db_is_populated() {
-    php "${APP_DIR}/artisan" tinker --execute="
-        try { \DB::connection()->getSchemaBuilder()->hasTable('migrations') ? exit(0) : exit(1); }
-        catch (\Throwable \$e) { exit(1); }
-    " 2>/dev/null
-}
+create_admin_if_no_users() {
+    local users_query_status=0
+    php -r '
+        require "/var/www/html/vendor/autoload.php";
+        $app = require "/var/www/html/bootstrap/app.php";
+        $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+        exit(Illuminate\Support\Facades\DB::table("users")->exists() ? 0 : 1);
+    ' || users_query_status=$?
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+    case "${users_query_status}" in
+        0) return ;;
+        1) ;;
+        *) fail "could not query the users table" ;;
+    esac
 
-resolve_file_secrets
-setup_data
-configure_env
-
-if ! grep -q '^APP_KEY=base64:' "${APP_DIR}/.env" 2>/dev/null; then
-    log "Generating APP_KEY"
-    php "${APP_DIR}/artisan" key:generate --no-interaction
-fi
-
-wait_for_db
-
-if db_is_populated; then
-    log "Running migrations"
-    php "${APP_DIR}/artisan" migrate --no-interaction --force
-else
-    log "Empty database — running migrations + creating admin"
-    php "${APP_DIR}/artisan" migrate --no-interaction --force
-
-    php "${APP_DIR}/artisan" freescout:create-user \
-        --no-interaction \
+    require_var ADMIN_EMAIL "no user exists yet, an admin account must be created"
+    require_var ADMIN_PASS "no user exists yet, an admin account must be created"
+    log "No user found, creating admin ${ADMIN_EMAIL}"
+    artisan freescout:create-user \
         --role=admin \
         --firstName="${ADMIN_FIRST_NAME:-Admin}" \
         --lastName="${ADMIN_LAST_NAME:-User}" \
-        --email="${ADMIN_EMAIL:-admin@example.com}" \
-        --password="${ADMIN_PASS:-freescout}"
-fi
+        --email="${ADMIN_EMAIL}" \
+        --password="${ADMIN_PASS}"
+}
 
-if [ -d "${APP_DIR}/Modules" ] && [ "$(ls -A "${APP_DIR}/Modules" 2>/dev/null)" ]; then
-    log "Registering modules"
-    yes | php "${APP_DIR}/artisan" freescout:module-install --no-ansi 2>/dev/null || true
-fi
+register_modules() {
+    local module_manifest module_alias
+    for module_manifest in "${DATA_DIR}"/modules/*/module.json; do
+        [ -f "${module_manifest}" ] || continue
+        module_alias=$(php -r 'echo json_decode(file_get_contents($argv[1]))->alias;' -- "${module_manifest}")
+        log "Registering module ${module_alias}"
+        artisan freescout:module-install "${module_alias}"
+    done
+}
 
-php "${APP_DIR}/artisan" storage:link --no-interaction 2>/dev/null || true
-php "${APP_DIR}/artisan" config:clear --no-interaction
-php "${APP_DIR}/artisan" freescout:clear-cache --no-interaction 2>/dev/null || true
-php "${APP_DIR}/artisan" freescout:after-app-update --no-interaction 2>/dev/null || true
+resolve_file_secrets
+link_persistent_dir "${APP_DIR}/storage" "${DATA_DIR}/storage" -an
+link_persistent_dir "${APP_DIR}/Modules" "${DATA_DIR}/modules" -a
+configure_env
+ensure_app_key
+wait_for_db
+artisan migrate --force
+create_admin_if_no_users
+register_modules
+artisan freescout:after-app-update
 
-log "Ready — ${APP_URL:-http://localhost:8080}"
+log "Starting services for ${APP_URL}"
 exec "$@"
