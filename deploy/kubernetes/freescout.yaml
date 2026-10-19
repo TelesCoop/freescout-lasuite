@@ -88,8 +88,9 @@ spec:
             requests:
               cpu: 100m
               memory: 256Mi
+            # pm.max_children (10) × memory_limit (256M), plus the queue worker and the scheduler.
             limits:
-              memory: 1Gi
+              memory: 2Gi
       volumes:
         - name: data
           persistentVolumeClaim:
