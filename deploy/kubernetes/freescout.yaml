@@ -30,6 +30,9 @@ spec:
       labels:
         app.kubernetes.io/name: freescout
     spec:
+      automountServiceAccountToken: false
+      # Otherwise kubelet injects FREESCOUT_SERVICE_HOST, FREESCOUT_PORT… which the entrypoint copies into .env.
+      enableServiceLinks: false
       imagePullSecrets:
         - name: ghcr-telescoop
       securityContext:
@@ -46,6 +49,8 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            - name: health
+              containerPort: 8081
           envFrom:
             - configMapRef:
                 name: freescout-config
@@ -75,8 +80,9 @@ spec:
             httpGet: *login-page
             periodSeconds: 10
           livenessProbe:
-            tcpSocket:
-              port: http
+            httpGet:
+              path: /fpm-ping
+              port: health
             periodSeconds: 20
           resources:
             requests:
