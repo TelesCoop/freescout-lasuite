@@ -1,8 +1,8 @@
-ARG FREESCOUT_IMAGE=ghcr.io/nfrastack/container-freescout:2.2.19-php8.5-alpine_3.24
+ARG FREESCOUT_IMAGE=ghcr.io/nfrastack/container-freescout:2.2.19-php8.5-alpine_3.24@sha256:1ec4db07acc33f86f1c2d96d3a3d65183a59e28b4a6c022bbea7f6f11b83f799
 
 FROM ${FREESCOUT_IMAGE} AS source
 
-FROM alpine:3.24
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
 LABEL org.opencontainers.image.source="https://github.com/TelesCoop/freescout-lasuite"
 
@@ -50,35 +50,42 @@ RUN apk add --no-cache \
     && ln -sf /dev/stdout /var/log/nginx/access.log \
     && ln -sf /dev/stderr /var/log/nginx/error.log \
     && mkdir -p \
-        /var/www/html \
         /data \
         /var/run/nginx \
         /var/run/php-fpm \
         /var/run/supervisord \
         /var/lib/nginx/tmp \
     && chown -R ${UID}:${GID} \
-        /var/www/html \
         /data \
         /var/run/nginx \
         /var/run/php-fpm \
         /var/run/supervisord \
         /var/lib/nginx
 
-COPY --from=source --chown=${UID}:${GID} /container/data/freescout/install /var/www/html
-COPY --chown=${UID}:${GID} modules/ /var/www/html/Modules/
-RUN rm -rf /var/www/html/public/storage \
+# The code stays owned by root: the runtime user only writes Laravel's caches, the generated JS/CSS and /data.
+COPY --from=source /container/data/freescout/install /var/www/html
+COPY modules/ /var/www/html/Modules/
+RUN mkdir -p /usr/src \
+    && mv /var/www/html/storage /usr/src/freescout-storage \
+    && ln -s /data/storage /var/www/html/storage \
+    && ln -s /data/.env /var/www/html/.env \
+    && rm -rf /var/www/html/public/storage \
     && ln -s /var/www/html/storage/app/public /var/www/html/public/storage \
     && mkdir -p /var/www/html/public/modules \
-    && chown ${UID}:${GID} /var/www/html/public/modules \
     && for module_manifest in /var/www/html/Modules/*/module.json; do \
            [ -f "${module_manifest}" ] || { echo "No module in modules/: run git submodule update --init" >&2; exit 1; }; \
            module_dir=$(dirname "${module_manifest}"); \
            module_alias=$(php -r 'echo json_decode(file_get_contents($argv[1]))->alias;' -- "${module_manifest}"); \
            ln -s "${module_dir}/Public" "/var/www/html/public/modules/${module_alias}"; \
-       done
+       done \
+    && chown -R ${UID}:${GID} \
+        /var/www/html/bootstrap/cache \
+        /var/www/html/public/js/builds \
+        /var/www/html/public/css/builds
 
 COPY docker/nginx/nginx.conf     /etc/nginx/nginx.conf
 COPY docker/nginx/freescout.conf /etc/nginx/http.d/default.conf
+COPY docker/nginx/health.conf    /etc/nginx/http.d/health.conf
 COPY docker/php/www.conf         /etc/${PHP_PKG}/php-fpm.d/www.conf
 COPY docker/php/php.ini          /etc/${PHP_PKG}/conf.d/99-freescout.ini
 COPY docker/supervisord.conf     /etc/supervisord.conf

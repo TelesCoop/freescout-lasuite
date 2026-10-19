@@ -45,15 +45,11 @@ $(env | sed -n '/^[A-Za-z_][A-Za-z0-9_]*_FILE=/p')
 EOF
 }
 
-link_persistent_storage() {
-    if [ -L "${APP_DIR}/storage" ]; then
-        return
-    fi
+seed_persistent_storage() {
     if [ ! -d "${DATA_DIR}/storage" ]; then
-        cp -a "${APP_DIR}/storage" "${DATA_DIR}/storage"
+        log "Seeding ${DATA_DIR}/storage"
+        cp -R /usr/src/freescout-storage "${DATA_DIR}/storage"
     fi
-    rm -rf "${APP_DIR}/storage"
-    ln -s "${DATA_DIR}/storage" "${APP_DIR}/storage"
 }
 
 configure_env() {
@@ -76,7 +72,6 @@ configure_env() {
     esac
 
     touch "${ENV_FILE}"
-    ln -sfn "${ENV_FILE}" "${APP_DIR}/.env"
 
     set_env APP_URL "${APP_URL}"
     set_env APP_TRUSTED_HOSTS "${app_host},localhost,127.0.0.1"
@@ -163,14 +158,17 @@ migrate_modules() {
 }
 
 resolve_file_secrets
-link_persistent_storage
+seed_persistent_storage
 configure_env
 ensure_app_key
 wait_for_db
 artisan migrate --force
+# FreeScout's web installer only stays locked while this marker exists.
+touch "${DATA_DIR}/storage/.installed"
 create_admin_if_no_users
 artisan freescout:after-app-update
 migrate_modules
 
 log "Starting services for ${APP_URL}"
-exec "$@"
+# Secrets now live in ${ENV_FILE} only, so the services start with an empty environment.
+exec env -i PATH="${PATH}" HOME="${HOME}" "$@"

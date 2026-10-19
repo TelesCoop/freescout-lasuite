@@ -15,7 +15,7 @@ jobs:
     env:
       IMAGE: ghcr.io/telescoop/freescout-lasuite
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       # The deploy key only grants access to the modules repository, so it is checked out separately.
       - name: Read the pinned modules commit
@@ -23,7 +23,7 @@ jobs:
         run: echo "commit=$(git ls-tree HEAD modules | awk '{print $3}')" >> "${GITHUB_OUTPUT}"
 
       - name: Checkout FreeScout modules
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: suitenumerique/freescout-modules
           ref: ${{ steps.modules.outputs.commit }}
