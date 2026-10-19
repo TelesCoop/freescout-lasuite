@@ -26,6 +26,8 @@ services:
     depends_on:
       freescout-db:
         condition: service_healthy
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
