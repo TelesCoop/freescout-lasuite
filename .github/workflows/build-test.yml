@@ -23,6 +23,9 @@ jobs:
       - name: End-to-end test
         run: ./tests/e2e.sh freescout-custom
 
+      - name: Kubernetes deployment test
+        run: ./tests/k8s.sh freescout-custom
+
       - name: Publish to GHCR
         if: github.event_name == 'push'
         env:
