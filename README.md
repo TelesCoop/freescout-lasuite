@@ -6,7 +6,9 @@ A [FreeScout](https://freescout.net/) image that runs entirely without root, for
 
 - The FreeScout code, Composer dependencies included, is taken from the [nfrastack/container-freescout](https://github.com/nfrastack/container-freescout) image (`FREESCOUT_IMAGE` argument of the `Dockerfile`).
 - It runs on a minimal Alpine runtime: nginx on port **8080**, php-fpm 8.5 with `intl` for localized dates, the queue worker and the scheduler, all managed by supervisord.
-- Every process runs as UID/GID **1000**. Configuration files are owned by root and cannot be modified by the application.
+- Every process runs as UID/GID **1000**. The application code and the server configuration are owned by root and read-only: the runtime user can only write to `/data`, Laravel's `bootstrap/cache` and the generated JS/CSS builds.
+- Secrets only live in `/data/.env`: the services start with an empty environment, so `DB_PASS`, `ADMIN_PASS` or `APP_KEY` cannot be read from it.
+- The web installer (`/install`), `install.php` and `tools.php` answer 404, and nginx does not disclose its version.
 - If a service keeps crashing, the container stops so the orchestrator restarts it.
 - Persistent data lives in **`/data`**:
   - `.env`, which holds the `APP_KEY`;
@@ -90,7 +92,8 @@ What [`deploy/kubernetes/freescout.yaml`](deploy/kubernetes/freescout.yaml) does
 - Its `securityContext` complies with the `restricted` Pod Security standard.
 - `fsGroup: 1000` makes the persistent volume writable.
 - It runs **a single** replica with the `Recreate` strategy, because the volume is `ReadWriteOnce` and migrations run at startup.
-- The probes send `Host: localhost`, because FreeScout rejects hosts missing from `APP_URL` and `APP_TRUSTED_HOSTS`.
+- The startup and readiness probes load `/login` with `Host: localhost`, because FreeScout rejects hosts missing from `APP_URL` and `APP_TRUSTED_HOSTS`. The liveness probe asks php-fpm directly, on port 8081, which the Service does not expose.
+- Service links and the service account token are disabled.
 
 **Upgrading:** replace the `sha-…` tag in the manifest with the newly published tag, then apply it again. Migrations run at startup.
 
@@ -113,7 +116,13 @@ CI reads the modules repository with a read-only deploy key, stored in the `MODU
 
 ## Upgrading FreeScout
 
-Change the nfrastack image tag in the `FREESCOUT_IMAGE` argument of the `Dockerfile`, then push to `main`. CI tests and publishes the image.
+Change the nfrastack image tag **and digest** in the `FREESCOUT_IMAGE` argument of the `Dockerfile`, then push to `main`. CI tests and publishes the image.
+
+The base images and the GitHub actions are pinned by digest or commit SHA, so a re-published upstream tag cannot change the build. Get the digest of a tag with:
+
+```sh
+docker buildx imagetools inspect ghcr.io/nfrastack/container-freescout:<tag> --format '{{.Manifest.Digest}}'
+```
 
 ## Tests
 
@@ -122,9 +131,10 @@ The `.github/workflows/build-test.yml` workflow runs these tests and publishes o
 - `tests/e2e.sh <image>` runs the image with Docker and MariaDB, with `--cap-drop ALL`. It checks:
   - the admin login;
   - that no process runs as root;
-  - that the modules are migrated and their assets linked;
+  - that the modules are migrated and their assets linked, and that a module can be activated;
+  - that the code is read-only, that the services' environment holds no secret and that the installer is blocked;
   - that after the container is recreated, the `APP_KEY` is kept and the admin is not created again.
-- `tests/k8s.sh <image>` deploys the unmodified manifest to a [kind](https://kind.sigs.k8s.io/) cluster, in a namespace enforcing the `restricted` Pod Security standard, and waits for the deployment to be ready.
+- `tests/k8s.sh <image>` deploys the unmodified manifest to a [kind](https://kind.sigs.k8s.io/) cluster, in a namespace enforcing the `restricted` Pod Security standard. It waits for the deployment to be ready, restarts it on the same volume and checks that no service link leaked into `.env`.
 
 ## Inherited files
 
