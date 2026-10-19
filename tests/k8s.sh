@@ -87,4 +87,12 @@ kubectl -n "${APP_NAMESPACE}" create secret generic freescout-secrets \
 kubectl -n "${APP_NAMESPACE}" apply -f "${MANIFEST}"
 kubectl -n "${APP_NAMESPACE}" rollout status deployment/freescout --timeout=600s
 
+# The recreated pod starts after the Service exists, which is when kubelet would inject the service links.
+kubectl -n "${APP_NAMESPACE}" rollout restart deployment/freescout
+kubectl -n "${APP_NAMESPACE}" rollout status deployment/freescout --timeout=600s
+if kubectl -n "${APP_NAMESPACE}" exec deployment/freescout -- grep -q '^SERVICE_HOST=' /data/.env; then
+    echo "FAIL: Kubernetes service links leaked into .env" >&2
+    exit 1
+fi
+
 echo "PASS"

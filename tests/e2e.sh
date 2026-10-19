@@ -121,6 +121,44 @@ assert_modules_installed() {
     done
 }
 
+assert_hardened() {
+    local path status headers service_pid
+    for path in /install /install/database /install.php /tools.php; do
+        status=$(curl -s -o /dev/null -w '%{http_code}' "${APP_URL}${path}")
+        [ "${status}" = 404 ] || fail "${path} returned ${status}, expected 404"
+    done
+    headers=$(curl -sI "${APP_URL}/login")
+    if grep -qi '^server: nginx/' <<<"${headers}"; then
+        fail "nginx discloses its version"
+    fi
+
+    docker exec "${APP_CONTAINER}" sh -c \
+        'test ! -w /var/www/html && test ! -w /var/www/html/public/index.php && test ! -w /var/www/html/config/app.php' \
+        || fail "application code is writable by the runtime user"
+    for service_pid in 1 $(docker exec "${APP_CONTAINER}" pgrep -f 'php-fpm: pool'); do
+        if docker exec "${APP_CONTAINER}" grep -qa DB_PASS "/proc/${service_pid}/environ"; then
+            fail "secrets leaked into the environment of PID ${service_pid}"
+        fi
+    done
+    [ "$(docker exec "${APP_CONTAINER}" wget -qO- http://127.0.0.1:8081/fpm-ping)" = pong ] || fail "php-fpm ping failed"
+}
+
+# Activation clears the caches and regenerates the JS/CSS builds, so it exercises every path left writable.
+assert_module_activates() {
+    local modules_page csrf_token activation_response dashboard_status
+    modules_page=$(curl -fsS -b "${COOKIE_JAR}" "${APP_URL}/modules/list")
+    csrf_token=$(grep -o -m1 'name="csrf-token" content="[^"]*"' <<<"${modules_page}" | cut -d'"' -f4)
+    [ -n "${csrf_token}" ] || fail "CSRF token missing from the modules page"
+    activation_response=$(curl -fsS -b "${COOKIE_JAR}" -H 'X-Requested-With: XMLHttpRequest' \
+        --data-urlencode "_token=${csrf_token}" \
+        --data action=activate \
+        --data alias=presence \
+        "${APP_URL}/modules/ajax")
+    grep -q '"status":"success"' <<<"${activation_response}" || fail "activating presence failed: ${activation_response}"
+    dashboard_status=$(curl -sS -o /dev/null -w '%{http_code}' -b "${COOKIE_JAR}" "${APP_URL}/")
+    [ "${dashboard_status}" = 200 ] || fail "GET / after module activation returned ${dashboard_status}"
+}
+
 docker network create "${NETWORK}" >/dev/null
 docker run -d --name "${DB_CONTAINER}" --network "${NETWORK}" \
     -e MARIADB_ROOT_PASSWORD=root \
@@ -137,6 +175,8 @@ grep -q 'creating admin' <<<"${first_start_logs}" || fail "admin was not created
 assert_admin_can_log_in
 assert_runs_unprivileged
 assert_modules_installed
+assert_hardened
+assert_module_activates
 app_key=$(docker exec "${APP_CONTAINER}" grep '^APP_KEY=' /data/.env)
 
 echo "--- Recreated container on the same volume"
