@@ -13,7 +13,7 @@ jobs:
       contents: read
       packages: write
     env:
-      IMAGE: ghcr.io/telescoop/docker-freescout
+      IMAGE: ghcr.io/telescoop/freescout-lasuite
     steps:
       - uses: actions/checkout@v5
 

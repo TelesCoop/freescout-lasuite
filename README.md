@@ -1,4 +1,4 @@
-# TelesCoop/docker-freescout
+# TelesCoop/freescout-lasuite
 
 A [FreeScout](https://freescout.net/) image that runs entirely without root, for Kubernetes clusters that forbid root containers (Pod Security `restricted`).
 
@@ -17,8 +17,8 @@ A [FreeScout](https://freescout.net/) image that runs entirely without root, for
 CI publishes the image to GHCR on every push to `main`, once the tests pass:
 
 ```text
-ghcr.io/telescoop/docker-freescout:sha-<commit>   # immutable, use this in production
-ghcr.io/telescoop/docker-freescout:latest
+ghcr.io/telescoop/freescout-lasuite:sha-<commit>   # immutable, use this in production
+ghcr.io/telescoop/freescout-lasuite:latest
 ```
 
 The package is private: pulling it requires a GitHub token with the `read:packages` scope.
