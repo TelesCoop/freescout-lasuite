@@ -65,7 +65,15 @@ RUN apk add --no-cache \
 COPY --from=source --chown=${UID}:${GID} /container/data/freescout/install /var/www/html
 COPY --chown=${UID}:${GID} modules/ /var/www/html/Modules/
 RUN rm -rf /var/www/html/public/storage \
-    && ln -s /var/www/html/storage/app/public /var/www/html/public/storage
+    && ln -s /var/www/html/storage/app/public /var/www/html/public/storage \
+    && mkdir -p /var/www/html/public/modules \
+    && chown ${UID}:${GID} /var/www/html/public/modules \
+    && for module_manifest in /var/www/html/Modules/*/module.json; do \
+           [ -f "${module_manifest}" ] || { echo "No module in modules/: run git submodule update --init" >&2; exit 1; }; \
+           module_dir=$(dirname "${module_manifest}"); \
+           module_alias=$(php -r 'echo json_decode(file_get_contents($argv[1]))->alias;' -- "${module_manifest}"); \
+           ln -s "${module_dir}/Public" "/var/www/html/public/modules/${module_alias}"; \
+       done
 
 COPY docker/nginx/nginx.conf     /etc/nginx/nginx.conf
 COPY docker/nginx/freescout.conf /etc/nginx/http.d/default.conf

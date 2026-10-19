@@ -45,19 +45,15 @@ $(env | sed -n '/^[A-Za-z_][A-Za-z0-9_]*_FILE=/p')
 EOF
 }
 
-# "seed" copies the image content only into an empty volume; "sync" also refreshes it on every new container.
-link_persistent_dir() {
-    local image_dir="$1" persistent_dir="$2" copy_mode="$3"
-    if [ -L "${image_dir}" ]; then
+link_persistent_storage() {
+    if [ -L "${APP_DIR}/storage" ]; then
         return
     fi
-    if [ ! -d "${persistent_dir}" ]; then
-        cp -a "${image_dir}" "${persistent_dir}"
-    elif [ "${copy_mode}" = sync ]; then
-        cp -a "${image_dir}/." "${persistent_dir}/"
+    if [ ! -d "${DATA_DIR}/storage" ]; then
+        cp -a "${APP_DIR}/storage" "${DATA_DIR}/storage"
     fi
-    rm -rf "${image_dir}"
-    ln -s "${persistent_dir}" "${image_dir}"
+    rm -rf "${APP_DIR}/storage"
+    ln -s "${DATA_DIR}/storage" "${APP_DIR}/storage"
 }
 
 configure_env() {
@@ -156,26 +152,25 @@ create_admin_if_no_users() {
         --password="${ADMIN_PASS}"
 }
 
-register_modules() {
-    local module_manifest module_alias
-    for module_manifest in "${DATA_DIR}"/modules/*/module.json; do
-        [ -f "${module_manifest}" ] || continue
-        module_alias=$(php -r 'echo json_decode(file_get_contents($argv[1]))->alias;' -- "${module_manifest}")
-        log "Registering module ${module_alias}"
-        artisan freescout:module-install "${module_alias}"
+# Runs after freescout:after-app-update, which clears the cached module list.
+migrate_modules() {
+    local module_manifest module_name
+    for module_manifest in "${APP_DIR}"/Modules/*/module.json; do
+        module_name=$(basename "$(dirname "${module_manifest}")")
+        log "Migrating module ${module_name}"
+        artisan module:migrate "${module_name}" --force
     done
 }
 
 resolve_file_secrets
-link_persistent_dir "${APP_DIR}/storage" "${DATA_DIR}/storage" seed
-link_persistent_dir "${APP_DIR}/Modules" "${DATA_DIR}/modules" sync
+link_persistent_storage
 configure_env
 ensure_app_key
 wait_for_db
 artisan migrate --force
 create_admin_if_no_users
-register_modules
 artisan freescout:after-app-update
+migrate_modules
 
 log "Starting services for ${APP_URL}"
 exec "$@"
