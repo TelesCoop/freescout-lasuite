@@ -1,1 +1,5 @@
 examples/
+modules/.git
+modules/README.md
+modules/Tests
+modules/*/Tests

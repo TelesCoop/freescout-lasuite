@@ -17,6 +17,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The deploy key only grants access to the modules repository, so it is checked out separately.
+      - name: Read the pinned modules commit
+        id: modules
+        run: echo "commit=$(git ls-tree HEAD modules | awk '{print $3}')" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout FreeScout modules
+        uses: actions/checkout@v5
+        with:
+          repository: suitenumerique/freescout-modules
+          ref: ${{ steps.modules.outputs.commit }}
+          ssh-key: ${{ secrets.MODULES_DEPLOY_KEY }}
+          persist-credentials: false
+          path: modules
+
       - name: Build image
         run: docker build -t freescout-custom .
 
