@@ -5,7 +5,7 @@ A [FreeScout](https://freescout.net/) image that runs entirely without root, for
 ## How it works
 
 - The FreeScout code, Composer dependencies included, is taken from the [nfrastack/container-freescout](https://github.com/nfrastack/container-freescout) image (`FREESCOUT_IMAGE` argument of the `Dockerfile`).
-- It runs on a minimal Alpine runtime: nginx on port **8080**, php-fpm 8.4, the queue worker and the scheduler, all managed by supervisord.
+- It runs on a minimal Alpine runtime: nginx on port **8080**, php-fpm 8.5 with `intl` for localized dates, the queue worker and the scheduler, all managed by supervisord.
 - Every process runs as UID/GID **1000**. Configuration files are owned by root and cannot be modified by the application.
 - If a service keeps crashing, the container stops so the orchestrator restarts it.
 - Persistent data lives in **`/data`**:

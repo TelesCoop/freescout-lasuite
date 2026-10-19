@@ -6,7 +6,7 @@ FROM alpine:3.24
 
 LABEL org.opencontainers.image.source="https://github.com/TelesCoop/docker-freescout"
 
-ARG PHP_PKG=php84
+ARG PHP_PKG=php85
 ARG UID=1000
 ARG GID=1000
 
@@ -27,8 +27,8 @@ RUN apk add --no-cache \
         ${PHP_PKG}-gd \
         ${PHP_PKG}-iconv \
         ${PHP_PKG}-imap \
+        ${PHP_PKG}-intl \
         ${PHP_PKG}-mbstring \
-        ${PHP_PKG}-opcache \
         ${PHP_PKG}-openssl \
         ${PHP_PKG}-pcntl \
         ${PHP_PKG}-pdo \
@@ -44,6 +44,8 @@ RUN apk add --no-cache \
         ${PHP_PKG}-zip \
     && ln -sf /usr/bin/${PHP_PKG} /usr/bin/php \
     && ln -sf /usr/sbin/php-fpm${PHP_PKG#php} /usr/sbin/php-fpm \
+    && php -v \
+    && php-fpm -v \
     && sed -E -i 's|^;?error_log = .*|error_log = /proc/self/fd/2|' /etc/${PHP_PKG}/php-fpm.conf \
     && ln -sf /dev/stdout /var/log/nginx/access.log \
     && ln -sf /dev/stderr /var/log/nginx/error.log \
