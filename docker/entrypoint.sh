@@ -74,6 +74,7 @@ configure_env() {
     if [ ! -f "${env_file}" ]; then
         cat > "${env_file}" <<'EOF'
 APP_NAME=FreeScout
+APP_KEY=
 APP_ENV=production
 APP_DEBUG=false
 APP_LOG=single
