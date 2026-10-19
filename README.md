@@ -97,9 +97,20 @@ What [`deploy/kubernetes/freescout.yaml`](deploy/kubernetes/freescout.yaml) does
 
 ## FreeScout modules
 
-Put a module folder (the one containing `module.json`) in `modules/`. The module is baked into the image and registered at startup with `freescout:module-install <alias>`.
+`modules/` is a git submodule pinned to a commit of the private [suitenumerique/freescout-modules](https://github.com/suitenumerique/freescout-modules) repository, which currently provides `PersonalTemplates` and `Presence`. Clone with `git clone --recurse-submodules`, or run `git submodule update --init` in an existing clone.
+
+Every module of `modules/` is baked into the image and registered at startup with `freescout:module-install <alias>`, which runs its migrations and publishes its assets. Activate each module once in *Manage » Modules*; the choice is stored in the database.
 
 Modules baked into the image replace their copy in `/data/modules` on every new container: the image is the source of truth. Modules installed from the web interface are kept.
+
+**Updating the modules:**
+
+```sh
+git submodule update --remote modules
+git commit -am "chore: update FreeScout modules"
+```
+
+CI reads the modules repository with a read-only deploy key, stored in the `MODULES_DEPLOY_KEY` secret of this repository.
 
 ## Upgrading FreeScout
 
@@ -112,6 +123,7 @@ The `.github/workflows/build-test.yml` workflow runs these tests and publishes o
 - `tests/e2e.sh <image>` runs the image with Docker and MariaDB, with `--cap-drop ALL`. It checks:
   - the admin login;
   - that no process runs as root;
+  - that the modules are migrated and their assets published;
   - that after the container is recreated, the `APP_KEY` is kept and the admin is not created again.
 - `tests/k8s.sh <image>` deploys the unmodified manifest to a [kind](https://kind.sigs.k8s.io/) cluster, in a namespace enforcing the `restricted` Pod Security standard, and waits for the deployment to be ready.
 
