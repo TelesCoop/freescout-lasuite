@@ -107,6 +107,18 @@ assert_runs_unprivileged() {
         || fail "php-fpm error_log is not sent to stderr"
 }
 
+assert_modules_installed() {
+    local tables table module_alias
+    tables=$(docker exec "${DB_CONTAINER}" mariadb -ufreescout -p"${DB_PASS}" -N -e 'SHOW TABLES' freescout)
+    for table in personal_templates presence_views; do
+        grep -qx "${table}" <<<"${tables}" || fail "module table ${table} was not migrated"
+    done
+    for module_alias in personaltemplates presence; do
+        docker exec "${APP_CONTAINER}" test -L "/var/www/html/public/modules/${module_alias}" \
+            || fail "assets of module ${module_alias} are not published"
+    done
+}
+
 docker network create "${NETWORK}" >/dev/null
 docker run -d --name "${DB_CONTAINER}" --network "${NETWORK}" \
     -e MARIADB_ROOT_PASSWORD=root \
@@ -122,6 +134,7 @@ first_start_logs=$(docker logs "${APP_CONTAINER}" 2>&1)
 grep -q 'creating admin' <<<"${first_start_logs}" || fail "admin was not created on first start"
 assert_admin_can_log_in
 assert_runs_unprivileged
+assert_modules_installed
 app_key=$(docker exec "${APP_CONTAINER}" grep '^APP_KEY=' /data/.env)
 
 echo "--- Recreated container on the same volume"
