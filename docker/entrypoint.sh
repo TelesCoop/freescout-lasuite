@@ -45,14 +45,17 @@ $(env | sed -n '/^[A-Za-z_][A-Za-z0-9_]*_FILE=/p')
 EOF
 }
 
-# Storage never overwrites existing files; modules shipped in the image replace their volume copy.
+# "seed" copies the image content only into an empty volume; "sync" also refreshes it on every new container.
 link_persistent_dir() {
-    local image_dir="$1" persistent_dir="$2" copy_flags="$3"
+    local image_dir="$1" persistent_dir="$2" copy_mode="$3"
     if [ -L "${image_dir}" ]; then
         return
     fi
-    mkdir -p "${persistent_dir}"
-    cp ${copy_flags} "${image_dir}/." "${persistent_dir}/"
+    if [ ! -d "${persistent_dir}" ]; then
+        cp -a "${image_dir}" "${persistent_dir}"
+    elif [ "${copy_mode}" = sync ]; then
+        cp -a "${image_dir}/." "${persistent_dir}/"
+    fi
     rm -rf "${image_dir}"
     ln -s "${persistent_dir}" "${image_dir}"
 }
@@ -164,8 +167,8 @@ register_modules() {
 }
 
 resolve_file_secrets
-link_persistent_dir "${APP_DIR}/storage" "${DATA_DIR}/storage" -an
-link_persistent_dir "${APP_DIR}/Modules" "${DATA_DIR}/modules" -a
+link_persistent_dir "${APP_DIR}/storage" "${DATA_DIR}/storage" seed
+link_persistent_dir "${APP_DIR}/Modules" "${DATA_DIR}/modules" sync
 configure_env
 ensure_app_key
 wait_for_db
