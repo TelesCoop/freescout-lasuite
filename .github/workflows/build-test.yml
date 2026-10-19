@@ -10,72 +10,10 @@ jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build image
         run: docker build -t freescout-custom .
 
-      - name: Verify non-root USER
-        run: |
-          user=$(docker inspect --format '{{.Config.User}}' freescout-custom)
-          echo "Container user: ${user}"
-          if [ "${user}" = "root" ] || [ -z "${user}" ]; then
-            echo "FAIL: image runs as root"
-            exit 1
-          fi
-
-      - name: Start services
-        run: |
-          docker network create test-net
-
-          docker run -d --name test-db --network test-net \
-            -e MARIADB_ROOT_PASSWORD=rootpass \
-            -e MARIADB_DATABASE=freescout \
-            -e MARIADB_USER=freescout \
-            -e MARIADB_PASSWORD=testpass \
-            mariadb:11
-
-          echo "Waiting for MariaDB"
-          for i in $(seq 1 30); do
-            if docker exec test-db healthcheck.sh --connect --innodb_initialized 2>/dev/null; then
-              echo "MariaDB ready"
-              break
-            fi
-            sleep 2
-          done
-
-          docker run -d --name test-app --network test-net \
-            -p 8080:8080 \
-            -e DB_TYPE=mariadb \
-            -e DB_HOST=test-db \
-            -e DB_PORT=3306 \
-            -e DB_NAME=freescout \
-            -e DB_USER=freescout \
-            -e DB_PASS=testpass \
-            -e APP_URL=http://localhost:8080 \
-            -e ADMIN_EMAIL=test@test.com \
-            -e ADMIN_PASS=testpass123 \
-            freescout-custom
-
-      - name: Wait for app and smoke test
-        run: |
-          echo "Waiting for FreeScount to start"
-          for i in $(seq 1 60); do
-            if curl -sf -o /dev/null http://localhost:8080/login 2>/dev/null; then
-              echo "FreeScount responding on /login"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "FAIL: FreeScount did not respond within 5 minutes"
-          echo "--- App logs ---"
-          docker logs test-app
-          exit 1
-
-      - name: Show logs on failure
-        if: failure()
-        run: |
-          echo "=== App logs ==="
-          docker logs test-app 2>&1 || true
-          echo "=== DB logs ==="
-          docker logs test-db 2>&1 || true
+      - name: End-to-end test
+        run: ./tests/e2e.sh freescout-custom
