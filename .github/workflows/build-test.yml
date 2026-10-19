@@ -1,4 +1,4 @@
-name: Build & Test
+name: Build, Test & Publish
 
 on:
   push:
@@ -7,8 +7,13 @@ on:
     branches: [main]
 
 jobs:
-  build-test:
-    runs-on: ubuntu-latest
+  build-test-publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/telescoop/docker-freescout
     steps:
       - uses: actions/checkout@v5
 
@@ -17,3 +22,14 @@ jobs:
 
       - name: End-to-end test
         run: ./tests/e2e.sh freescout-custom
+
+      - name: Publish to GHCR
+        if: github.event_name == 'push'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+          for tag in latest "sha-${GITHUB_SHA::7}"; do
+            docker tag freescout-custom "${IMAGE}:${tag}"
+            docker push "${IMAGE}:${tag}"
+          done

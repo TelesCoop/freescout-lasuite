@@ -4,6 +4,8 @@ FROM ${FREESCOUT_IMAGE} AS source
 
 FROM alpine:3.24
 
+LABEL org.opencontainers.image.source="https://github.com/TelesCoop/docker-freescout"
+
 ARG PHP_PKG=php84
 ARG UID=1000
 ARG GID=1000
