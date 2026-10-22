@@ -1,4 +1,4 @@
-ARG FREESCOUT_IMAGE=ghcr.io/nfrastack/container-freescout:2.2.19-php8.5-alpine_3.24@sha256:1ec4db07acc33f86f1c2d96d3a3d65183a59e28b4a6c022bbea7f6f11b83f799
+ARG FREESCOUT_IMAGE=ghcr.io/nfrastack/container-freescout:2.2.21-php8.5-alpine_3.24@sha256:5a1bc12791842f4b060adc524d97be206a2b057c2fadfc643dc9dfcd9b63bbf0
 
 FROM ${FREESCOUT_IMAGE} AS source
 
