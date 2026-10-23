@@ -99,8 +99,13 @@ assert_runs_unprivileged() {
     process_list=$(docker exec "${APP_CONTAINER}" ps -eo uid=,args=)
     root_processes=$(awk '$1 == 0' <<<"${process_list}")
     [ -z "${root_processes}" ] || fail "processes running as root: ${root_processes}"
-    for program in 'nginx: master' 'php-fpm: master' 'queue:work' 'scheduler.sh'; do
+    for program in 'nginx: master' 'php-fpm: master'; do
         grep -qF -- "${program}" <<<"${process_list}" || fail "${program} is not running"
+    done
+    for program in 'queue:work' 'scheduler.sh'; do
+        if grep -qF -- "${program}" <<<"${process_list}"; then
+            fail "${program} is running"
+        fi
     done
 
     docker exec "${APP_CONTAINER}" sh -c "grep -q '^error_log = /proc/self/fd/2' /etc/php*/php-fpm.conf" \
