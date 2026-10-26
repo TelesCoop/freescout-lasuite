@@ -2,7 +2,7 @@ ARG FREESCOUT_IMAGE=ghcr.io/nfrastack/container-freescout:2.2.21-php8.5-alpine_3
 
 FROM ${FREESCOUT_IMAGE} AS source
 
-FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 
 LABEL org.opencontainers.image.source="https://github.com/TelesCoop/freescout-lasuite"
 
@@ -13,7 +13,8 @@ ARG GID=1000
 RUN addgroup -g ${GID} freescout \
     && adduser -u ${UID} -G freescout -s /bin/sh -D freescout
 
-RUN apk add --no-cache \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache \
         nginx \
         procps-ng \
         supervisor \
