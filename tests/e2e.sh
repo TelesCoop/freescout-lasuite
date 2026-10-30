@@ -110,7 +110,7 @@ assert_runs_unprivileged() {
 }
 
 assert_modules_installed() {
-    local tables table module_alias
+    local tables table module_alias broken_links
     tables=$(docker exec "${DB_CONTAINER}" mariadb -ufreescout -p"${DB_PASS}" -N -e 'SHOW TABLES' freescout)
     for table in personal_templates presence_views; do
         grep -qx "${table}" <<<"${tables}" || fail "module table ${table} was not migrated"
@@ -119,6 +119,10 @@ assert_modules_installed() {
         docker exec "${APP_CONTAINER}" test -L "/var/www/html/public/modules/${module_alias}" \
             || fail "assets of module ${module_alias} are not published"
     done
+    # A module without assets too: the core reports a link leading nowhere as invalid, and cannot fix it.
+    broken_links=$(docker exec "${APP_CONTAINER}" sh -c \
+        'for link in /var/www/html/public/modules/*; do [ -d "${link}" ] || echo "${link}"; done')
+    [ -z "${broken_links}" ] || fail "module assets links lead nowhere: ${broken_links}"
 }
 
 assert_hardened() {

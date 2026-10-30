@@ -66,6 +66,7 @@ RUN apk upgrade --no-cache \
 # The code stays owned by root: the runtime user only writes Laravel's caches, the generated JS/CSS and /data.
 COPY --from=source /container/data/freescout/install /var/www/html
 COPY modules/ /var/www/html/Modules/
+# A module without assets gets an empty Public folder, which git does not keep: its link must lead somewhere.
 RUN mkdir -p /usr/src \
     && mv /var/www/html/storage /usr/src/freescout-storage \
     && ln -s /data/storage /var/www/html/storage \
@@ -77,6 +78,7 @@ RUN mkdir -p /usr/src \
            [ -f "${module_manifest}" ] || { echo "No module in modules/: run git submodule update --init" >&2; exit 1; }; \
            module_dir=$(dirname "${module_manifest}"); \
            module_alias=$(php -r 'echo json_decode(file_get_contents($argv[1]))->alias;' -- "${module_manifest}"); \
+           mkdir -p "${module_dir}/Public"; \
            ln -s "${module_dir}/Public" "/var/www/html/public/modules/${module_alias}"; \
        done \
     && chown -R ${UID}:${GID} \

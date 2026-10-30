@@ -101,7 +101,7 @@ What [`deploy/kubernetes/freescout.yaml`](deploy/kubernetes/freescout.yaml) does
 
 `modules/` is a git submodule pinned to a commit of the private [suitenumerique/freescout-modules](https://github.com/suitenumerique/freescout-modules) repository, which currently provides `PersonalTemplates` and `Presence`. Clone with `git clone --recurse-submodules`, or run `git submodule update --init` in an existing clone.
 
-Modules live in the image only: the build copies every module of `modules/` and links its public assets, and fails when `modules/` is empty. At startup, only their migrations run, with `module:migrate`. Activate each module once in *Manage » Modules*; the choice is stored in the database.
+Modules live in the image only: the build copies every module of `modules/` and links its public assets, giving an empty `Public` folder to a module without assets, and fails when `modules/` is empty. At startup, only their migrations run, with `module:migrate`. Activate each module once in *Manage » Modules*; the choice is stored in the database.
 
 Modules installed from the web interface are lost when the container is recreated: add them to `modules/` instead.
 
