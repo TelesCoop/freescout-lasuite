@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Run by the modules update, as its push with the workflow token triggers no workflow.
+  workflow_dispatch:
 
 jobs:
   build-test-publish:
@@ -14,6 +16,8 @@ jobs:
       packages: write
     env:
       IMAGE: ghcr.io/telescoop/freescout-lasuite
+    outputs:
+      image-tag: ${{ steps.publish.outputs.image-tag }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
@@ -41,7 +45,8 @@ jobs:
         run: ./tests/k8s.sh freescout-custom
 
       - name: Publish to GHCR
-        if: github.event_name == 'push'
+        id: publish
+        if: github.event_name != 'pull_request'
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -50,3 +55,34 @@ jobs:
             docker tag freescout-custom "${IMAGE}:${tag}"
             docker push "${IMAGE}:${tag}"
           done
+          echo "image-tag=sha-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
+
+  deploy-preprod:
+    needs: build-test-publish
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions: {}
+    # Images published in a row reach the preprod in the same order.
+    concurrency: deploy-preprod
+    steps:
+      # The deploy key only grants write access to the infrastructure repository, which ArgoCD deploys.
+      - name: Checkout the infrastructure
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: numerique-gouv/infra-freescout
+          ssh-key: ${{ secrets.INFRA_DEPLOY_KEY }}
+
+      - name: Deploy the image in preprod
+        env:
+          IMAGE_TAG: ${{ needs.build-test-publish.outputs.image-tag }}
+          VALUES: env/preprod/values.yaml.gotmpl
+        run: |
+          sed -i -E "/^image:/,/^[^ ]/ s/^(  tag: ).*/\1${IMAGE_TAG}/" "${VALUES}"
+          grep -qx "  tag: ${IMAGE_TAG}" "${VALUES}" || { echo "No image tag found in ${VALUES}" >&2; exit 1; }
+          if git diff --quiet; then
+            echo "The preprod already runs ${IMAGE_TAG}"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -am "chore: deploy the image ${IMAGE_TAG} in preprod"
+          git push

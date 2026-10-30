@@ -1,0 +1,48 @@
+name: Update modules
+
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+# A second run at the same time would pin the same commit again.
+concurrency: update-modules
+
+jobs:
+  update-modules:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      # The deploy key only grants access to the modules repository, so it is checked out separately.
+      - name: Checkout the latest FreeScout modules
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: suitenumerique/freescout-modules
+          ssh-key: ${{ secrets.MODULES_DEPLOY_KEY }}
+          persist-credentials: false
+          path: modules
+
+      - name: Pin the latest modules commit
+        id: pin
+        run: |
+          latest=$(git -C modules rev-parse HEAD)
+          if [ "${latest}" = "$(git ls-tree HEAD modules | awk '{print $3}')" ]; then
+            echo "The modules are up to date"
+            exit 0
+          fi
+          git update-index --cacheinfo "160000,${latest},modules"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "chore: update FreeScout modules to ${latest::7}"
+          git push
+          echo "updated=true" >> "${GITHUB_OUTPUT}"
+
+      # The push above, made with the workflow token, does not trigger the build.
+      - name: Build, test, publish and deploy the image in preprod
+        if: steps.pin.outputs.updated == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run build-test.yml --ref main

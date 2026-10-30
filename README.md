@@ -16,7 +16,7 @@ A [FreeScout](https://freescout.net/) image that runs entirely without root, for
 
 ## Images
 
-CI publishes the image to GHCR on every push to `main`, once the tests pass:
+CI publishes the image to GHCR on every push to `main` and every modules update, once the tests pass:
 
 ```text
 ghcr.io/telescoop/freescout-lasuite:sha-<commit>   # immutable, use this in production
@@ -99,20 +99,23 @@ What [`deploy/kubernetes/freescout.yaml`](deploy/kubernetes/freescout.yaml) does
 
 ## FreeScout modules
 
-`modules/` is a git submodule pinned to a commit of the private [suitenumerique/freescout-modules](https://github.com/suitenumerique/freescout-modules) repository, which currently provides `PersonalTemplates` and `Presence`. Clone with `git clone --recurse-submodules`, or run `git submodule update --init` in an existing clone.
+`modules/` is a git submodule pinned to a commit of the private [suitenumerique/freescout-modules](https://github.com/suitenumerique/freescout-modules) repository, whose README lists the modules. Clone with `git clone --recurse-submodules`, or run `git submodule update --init` in an existing clone.
 
 Modules live in the image only: the build copies every module of `modules/` and links its public assets, giving an empty `Public` folder to a module without assets, and fails when `modules/` is empty. At startup, only their migrations run, with `module:migrate`. Activate each module once in *Manage » Modules*; the choice is stored in the database.
 
 Modules installed from the web interface are lost when the container is recreated: add them to `modules/` instead.
 
-**Updating the modules:**
+**Updating the modules:** the `.github/workflows/update-modules.yml` workflow pins the latest commit of the modules every hour, then builds, tests, publishes and deploys the image in preprod. Run it right away with:
 
 ```sh
-git submodule update --remote modules
-git commit -am "chore: update FreeScout modules"
+gh workflow run update-modules.yml
 ```
 
 CI reads the modules repository with a read-only deploy key, stored in the `MODULES_DEPLOY_KEY` secret of this repository.
+
+## Preprod deployment
+
+Each image published from `main` is deployed in preprod: CI writes its tag in `env/preprod/values.yaml.gotmpl` of the [numerique-gouv/infra-freescout](https://github.com/numerique-gouv/infra-freescout) repository, which ArgoCD deploys. It pushes with a deploy key allowed to write to that repository only, stored in the `INFRA_DEPLOY_KEY` secret of this repository. The production tag is updated by hand, once the image is checked in preprod.
 
 ## Upgrading FreeScout
 
