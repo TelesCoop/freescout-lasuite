@@ -131,7 +131,7 @@ docker buildx imagetools inspect ghcr.io/nfrastack/container-freescout:<tag> --f
 
 The `.github/workflows/build-test.yml` workflow runs these tests and publishes only when they pass:
 
-- `tests/e2e.sh <image>` runs the image with Docker and MariaDB, with `--cap-drop ALL`. It checks:
+- `tests/e2e.sh <image> <mariadb|pgsql>` runs the image with Docker and MariaDB or PostgreSQL, the database of the preprod and the production, with `--cap-drop ALL`. CI runs it on both. It checks:
   - the admin login;
   - that no process runs as root;
   - that the modules are migrated and their assets linked, and that a module can be activated;

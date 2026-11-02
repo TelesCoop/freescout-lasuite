@@ -38,8 +38,11 @@ jobs:
       - name: Build image
         run: docker build -t freescout-custom .
 
-      - name: End-to-end test
-        run: ./tests/e2e.sh freescout-custom
+      - name: End-to-end test on MariaDB
+        run: ./tests/e2e.sh freescout-custom mariadb
+
+      - name: End-to-end test on PostgreSQL, the database of the preprod and the production
+        run: ./tests/e2e.sh freescout-custom pgsql
 
       - name: Kubernetes deployment test
         run: ./tests/k8s.sh freescout-custom

@@ -2,6 +2,8 @@
 set -euo pipefail
 
 IMAGE="${1:-freescout-custom}"
+# mariadb, or pgsql as in the preprod and the production.
+DB_TYPE="${2:-mariadb}"
 APP_URL=http://localhost:8080
 APP_CONTAINER=freescout-e2e-app
 DB_CONTAINER=freescout-e2e-db
@@ -43,8 +45,43 @@ wait_until() {
     fail "timed out waiting for ${description}"
 }
 
+start_database() {
+    case "${DB_TYPE}" in
+        mariadb)
+            docker run -d --name "${DB_CONTAINER}" --network "${NETWORK}" \
+                -e MARIADB_ROOT_PASSWORD=root \
+                -e MARIADB_DATABASE=freescout \
+                -e MARIADB_USER=freescout \
+                -e MARIADB_PASSWORD="${DB_PASS}" \
+                mariadb:11 >/dev/null
+            ;;
+        pgsql)
+            docker run -d --name "${DB_CONTAINER}" --network "${NETWORK}" \
+                -e POSTGRES_DB=freescout \
+                -e POSTGRES_USER=freescout \
+                -e POSTGRES_PASSWORD="${DB_PASS}" \
+                postgres:17 >/dev/null
+            ;;
+        *)
+            fail "database type must be mariadb or pgsql (got '${DB_TYPE}')"
+            ;;
+    esac
+}
+
 database_ready() {
-    docker exec "${DB_CONTAINER}" healthcheck.sh --connect --innodb_initialized >/dev/null 2>&1
+    case "${DB_TYPE}" in
+        mariadb) docker exec "${DB_CONTAINER}" healthcheck.sh --connect --innodb_initialized >/dev/null 2>&1 ;;
+        # Over TCP: while initializing the database, PostgreSQL only listens on its socket.
+        pgsql)   docker exec "${DB_CONTAINER}" pg_isready -h 127.0.0.1 -U freescout -d freescout >/dev/null 2>&1 ;;
+    esac
+}
+
+list_tables() {
+    case "${DB_TYPE}" in
+        mariadb) docker exec "${DB_CONTAINER}" mariadb -ufreescout -p"${DB_PASS}" -N -e 'SHOW TABLES' freescout ;;
+        pgsql)   docker exec "${DB_CONTAINER}" psql -U freescout -d freescout -At \
+                     -c "SELECT tablename FROM pg_tables WHERE schemaname = 'public'" ;;
+    esac
 }
 
 app_running() {
@@ -63,7 +100,7 @@ start_app() {
         --security-opt no-new-privileges \
         -v "${VOLUME}:/data" \
         -e APP_URL="${APP_URL}" \
-        -e DB_TYPE=mariadb \
+        -e DB_TYPE="${DB_TYPE}" \
         -e DB_HOST="${DB_CONTAINER}" \
         -e DB_NAME=freescout \
         -e DB_USER=freescout \
@@ -111,7 +148,7 @@ assert_runs_unprivileged() {
 
 assert_modules_installed() {
     local tables table module_alias broken_links
-    tables=$(docker exec "${DB_CONTAINER}" mariadb -ufreescout -p"${DB_PASS}" -N -e 'SHOW TABLES' freescout)
+    tables=$(list_tables)
     for table in personal_templates presence_views; do
         grep -qx "${table}" <<<"${tables}" || fail "module table ${table} was not migrated"
     done
@@ -164,13 +201,8 @@ assert_module_activates() {
 }
 
 docker network create "${NETWORK}" >/dev/null
-docker run -d --name "${DB_CONTAINER}" --network "${NETWORK}" \
-    -e MARIADB_ROOT_PASSWORD=root \
-    -e MARIADB_DATABASE=freescout \
-    -e MARIADB_USER=freescout \
-    -e MARIADB_PASSWORD="${DB_PASS}" \
-    mariadb:11 >/dev/null
-wait_until "MariaDB" database_ready
+start_database
+wait_until "the ${DB_TYPE} database" database_ready
 
 echo "--- First start on an empty database"
 start_app
