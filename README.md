@@ -134,7 +134,7 @@ The `.github/workflows/build-test.yml` workflow runs these tests and publishes o
 - `tests/e2e.sh <image> <mariadb|pgsql>` runs the image with Docker and MariaDB or PostgreSQL, the database of the preprod and the production, with `--cap-drop ALL`. CI runs it on both. It checks:
   - the admin login;
   - that no process runs as root;
-  - that the modules are migrated and their assets linked, and that a module can be activated;
+  - that the modules are migrated and their assets linked, and that each of them can be activated;
   - that the code is read-only, that the services' environment holds no secret and that the installer is blocked;
   - that after the container is recreated, the `APP_KEY` is kept and the admin is not created again.
 - `tests/k8s.sh <image>` deploys the unmodified manifest to a [kind](https://kind.sigs.k8s.io/) cluster, in a namespace enforcing the `restricted` Pod Security standard. It waits for the deployment to be ready, restarts it on the same volume and checks that no service link leaked into `.env`.

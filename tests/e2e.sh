@@ -76,11 +76,17 @@ database_ready() {
     esac
 }
 
+query_database() {
+    case "${DB_TYPE}" in
+        mariadb) docker exec "${DB_CONTAINER}" mariadb -ufreescout -p"${DB_PASS}" -N -e "$1" freescout ;;
+        pgsql)   docker exec "${DB_CONTAINER}" psql -U freescout -d freescout -At -c "$1" ;;
+    esac
+}
+
 list_tables() {
     case "${DB_TYPE}" in
-        mariadb) docker exec "${DB_CONTAINER}" mariadb -ufreescout -p"${DB_PASS}" -N -e 'SHOW TABLES' freescout ;;
-        pgsql)   docker exec "${DB_CONTAINER}" psql -U freescout -d freescout -At \
-                     -c "SELECT tablename FROM pg_tables WHERE schemaname = 'public'" ;;
+        mariadb) query_database 'SHOW TABLES' ;;
+        pgsql)   query_database "SELECT tablename FROM pg_tables WHERE schemaname = 'public'" ;;
     esac
 }
 
@@ -185,19 +191,27 @@ assert_hardened() {
 }
 
 # Activation clears the caches and regenerates the JS/CSS builds, so it exercises every path left writable.
-assert_module_activates() {
-    local modules_page csrf_token activation_response dashboard_status
+# The core answers success even when it deactivates the module again after an error: the database tells.
+assert_modules_activate() {
+    local module_aliases module_alias modules_page csrf_token dashboard_status
+    # shellcheck disable=SC2016 # $manifest belongs to the PHP code.
+    module_aliases=$(docker exec "${APP_CONTAINER}" php -r \
+        'foreach (glob("/var/www/html/Modules/*/module.json") as $manifest) { echo json_decode(file_get_contents($manifest))->alias, "\n"; }')
+    [ -n "${module_aliases}" ] || fail "no module in the image"
     modules_page=$(curl -fsS -b "${COOKIE_JAR}" "${APP_URL}/modules/list")
     csrf_token=$(grep -o -m1 'name="csrf-token" content="[^"]*"' <<<"${modules_page}" | cut -d'"' -f4)
     [ -n "${csrf_token}" ] || fail "CSRF token missing from the modules page"
-    activation_response=$(curl -fsS -b "${COOKIE_JAR}" -H 'X-Requested-With: XMLHttpRequest' \
-        --data-urlencode "_token=${csrf_token}" \
-        --data action=activate \
-        --data alias=presence \
-        "${APP_URL}/modules/ajax")
-    grep -q '"status":"success"' <<<"${activation_response}" || fail "activating presence failed: ${activation_response}"
+    for module_alias in ${module_aliases}; do
+        curl -fsS -o /dev/null -b "${COOKIE_JAR}" -H 'X-Requested-With: XMLHttpRequest' \
+            --data-urlencode "_token=${csrf_token}" \
+            --data action=activate \
+            --data "alias=${module_alias}" \
+            "${APP_URL}/modules/ajax"
+        [ "$(query_database "SELECT COUNT(*) FROM modules WHERE alias = '${module_alias}' AND active = true")" = 1 ] \
+            || fail "module ${module_alias} is not active after its activation"
+    done
     dashboard_status=$(curl -sS -o /dev/null -w '%{http_code}' -b "${COOKIE_JAR}" "${APP_URL}/")
-    [ "${dashboard_status}" = 200 ] || fail "GET / after module activation returned ${dashboard_status}"
+    [ "${dashboard_status}" = 200 ] || fail "GET / after the modules activation returned ${dashboard_status}"
 }
 
 docker network create "${NETWORK}" >/dev/null
@@ -212,7 +226,7 @@ assert_admin_can_log_in
 assert_runs_unprivileged
 assert_modules_installed
 assert_hardened
-assert_module_activates
+assert_modules_activate
 app_key=$(docker exec "${APP_CONTAINER}" grep '^APP_KEY=' /data/.env)
 
 echo "--- Recreated container on the same volume"
