@@ -13,6 +13,9 @@ ADMIN_EMAIL=admin@example.com
 # Spaces, '#' and '&' exercise the quoting of values written to .env.
 ADMIN_PASS='Admin pass #1 & more'
 DB_PASS='db pass #1 & more'
+PROBE_MODULE_MANIFEST='{"name": "E2eProbe", "alias": "e2eprobe", "description": "", "version": "1.0.0",
+"author": "e2e", "authorUrl": "https://example.com", "license": "AGPL-3.0", "keywords": [], "active": 0,
+"order": 0, "providers": [], "aliases": {}, "files": [], "requires": []}'
 COOKIE_JAR=$(mktemp)
 
 fail() {
@@ -190,28 +193,59 @@ assert_hardened() {
     [ "$(docker exec "${APP_CONTAINER}" wget -qO- http://127.0.0.1:8081/fpm-ping)" = pong ] || fail "php-fpm ping failed"
 }
 
-# Activation clears the caches and regenerates the JS/CSS builds, so it exercises every path left writable.
+fetch_modules_csrf_token() {
+    local modules_page csrf_token
+    modules_page=$(curl -fsS -b "${COOKIE_JAR}" "${APP_URL}/modules/list")
+    csrf_token=$(grep -o -m1 'name="csrf-token" content="[^"]*"' <<<"${modules_page}" | cut -d'"' -f4)
+    [ -n "${csrf_token}" ] || fail "CSRF token missing from the modules page"
+    echo "${csrf_token}"
+}
+
 # The core answers success even when it deactivates the module again after an error: the database tells.
+activate_module() {
+    local module_alias="$1" csrf_token="$2"
+    curl -fsS -o /dev/null -b "${COOKIE_JAR}" -H 'X-Requested-With: XMLHttpRequest' \
+        --data-urlencode "_token=${csrf_token}" \
+        --data action=activate \
+        --data "alias=${module_alias}" \
+        "${APP_URL}/modules/ajax"
+    [ "$(query_database "SELECT COUNT(*) FROM modules WHERE alias = '${module_alias}' AND active = true")" = 1 ] \
+        || fail "module ${module_alias} is not active after its activation"
+}
+
+# Activation clears the caches and regenerates the JS/CSS builds, so it exercises every path left writable.
 assert_modules_activate() {
-    local module_aliases module_alias modules_page csrf_token dashboard_status
+    local module_aliases module_alias csrf_token dashboard_status
     # shellcheck disable=SC2016 # $manifest belongs to the PHP code.
     module_aliases=$(docker exec "${APP_CONTAINER}" php -r \
         'foreach (glob("/var/www/html/Modules/*/module.json") as $manifest) { echo json_decode(file_get_contents($manifest))->alias, "\n"; }')
     [ -n "${module_aliases}" ] || fail "no module in the image"
-    modules_page=$(curl -fsS -b "${COOKIE_JAR}" "${APP_URL}/modules/list")
-    csrf_token=$(grep -o -m1 'name="csrf-token" content="[^"]*"' <<<"${modules_page}" | cut -d'"' -f4)
-    [ -n "${csrf_token}" ] || fail "CSRF token missing from the modules page"
+    csrf_token=$(fetch_modules_csrf_token)
     for module_alias in ${module_aliases}; do
-        curl -fsS -o /dev/null -b "${COOKIE_JAR}" -H 'X-Requested-With: XMLHttpRequest' \
-            --data-urlencode "_token=${csrf_token}" \
-            --data action=activate \
-            --data "alias=${module_alias}" \
-            "${APP_URL}/modules/ajax"
-        [ "$(query_database "SELECT COUNT(*) FROM modules WHERE alias = '${module_alias}' AND active = true")" = 1 ] \
-            || fail "module ${module_alias} is not active after its activation"
+        activate_module "${module_alias}" "${csrf_token}"
     done
     dashboard_status=$(curl -sS -o /dev/null -w '%{http_code}' -b "${COOKIE_JAR}" "${APP_URL}/")
     [ "${dashboard_status}" = 200 ] || fail "GET / after the modules activation returned ${dashboard_status}"
+}
+
+# Installing from Manage » Modules extracts the module into Modules/ as the runtime user, then activates it.
+assert_module_installs_like_the_interface() {
+    local csrf_token
+    docker exec -i "${APP_CONTAINER}" sh -c \
+        'mkdir -p /var/www/html/Modules/E2eProbe && cat > /var/www/html/Modules/E2eProbe/module.json' \
+        <<<"${PROBE_MODULE_MANIFEST}" || fail "the runtime user cannot add a module to Modules/"
+    csrf_token=$(fetch_modules_csrf_token)
+    activate_module e2eprobe "${csrf_token}"
+    docker exec "${APP_CONTAINER}" test -d /var/www/html/public/modules/e2eprobe \
+        || fail "assets of the module installed like the interface are not linked"
+}
+
+assert_modules_kept_on_recreation() {
+    docker exec "${APP_CONTAINER}" test -f /var/www/html/Modules/Presence/module.json \
+        || fail "bundled module removed from the volume was not restored"
+    docker exec "${APP_CONTAINER}" test -d /var/www/html/public/modules/e2eprobe \
+        || fail "module installed like the interface lost its assets link on recreation"
+    assert_modules_installed
 }
 
 docker network create "${NETWORK}" >/dev/null
@@ -227,11 +261,14 @@ assert_runs_unprivileged
 assert_modules_installed
 assert_hardened
 assert_modules_activate
+assert_module_installs_like_the_interface
 app_key=$(docker exec "${APP_CONTAINER}" grep '^APP_KEY=' /data/.env)
+docker exec "${APP_CONTAINER}" rm -rf /var/www/html/Modules/Presence
 
 echo "--- Recreated container on the same volume"
 docker rm -f "${APP_CONTAINER}" >/dev/null
 start_app
+assert_modules_kept_on_recreation
 second_start_logs=$(docker logs "${APP_CONTAINER}" 2>&1)
 if grep -q 'creating admin' <<<"${second_start_logs}"; then
     fail "admin re-created on restart"
