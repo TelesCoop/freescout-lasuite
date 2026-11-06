@@ -4,6 +4,7 @@ set -e
 APP_DIR=/var/www/html
 DATA_DIR=/data
 ENV_FILE="${DATA_DIR}/.env"
+BUNDLED_MODULES_DIR=/usr/src/freescout-modules
 
 log() { printf '[entrypoint] %s\n' "$*"; }
 
@@ -50,6 +51,30 @@ seed_persistent_storage() {
         log "Seeding ${DATA_DIR}/storage"
         cp -R /usr/src/freescout-storage "${DATA_DIR}/storage"
     fi
+}
+
+# Modules installed from the interface stay as they are; the bundled ones are reset to the image's version.
+sync_bundled_modules() {
+    local module_manifest module_dir module_name
+    mkdir -p "${DATA_DIR}/Modules"
+    for module_manifest in "${BUNDLED_MODULES_DIR}"/*/module.json; do
+        module_dir=$(dirname "${module_manifest}")
+        module_name=$(basename "${module_dir}")
+        rm -rf "${DATA_DIR}/Modules/${module_name}"
+        cp -R "${module_dir}" "${DATA_DIR}/Modules/${module_name}"
+    done
+}
+
+# public/ belongs to the image, so the links lost with the previous container are recreated.
+# A module without assets gets an empty Public folder, which git does not keep: its link must lead somewhere.
+link_module_assets() {
+    local module_manifest module_dir module_alias
+    for module_manifest in "${APP_DIR}"/Modules/*/module.json; do
+        module_dir=$(dirname "${module_manifest}")
+        module_alias=$(php -r 'echo json_decode(file_get_contents($argv[1]))->alias;' -- "${module_manifest}")
+        mkdir -p "${module_dir}/Public"
+        ln -sfn "${module_dir}/Public" "${APP_DIR}/public/modules/${module_alias}"
+    done
 }
 
 configure_env() {
@@ -148,9 +173,10 @@ create_admin_if_no_users() {
 }
 
 # Runs after freescout:after-app-update, which clears the cached module list.
-migrate_modules() {
+# The interface migrates the modules it installs or updates.
+migrate_bundled_modules() {
     local module_manifest module_name
-    for module_manifest in "${APP_DIR}"/Modules/*/module.json; do
+    for module_manifest in "${BUNDLED_MODULES_DIR}"/*/module.json; do
         module_name=$(basename "$(dirname "${module_manifest}")")
         log "Migrating module ${module_name}"
         artisan module:migrate "${module_name}" --force
@@ -159,6 +185,8 @@ migrate_modules() {
 
 resolve_file_secrets
 seed_persistent_storage
+sync_bundled_modules
+link_module_assets
 configure_env
 ensure_app_key
 wait_for_db
@@ -167,7 +195,7 @@ artisan migrate --force
 touch "${DATA_DIR}/storage/.installed"
 create_admin_if_no_users
 artisan freescout:after-app-update
-migrate_modules
+migrate_bundled_modules
 
 log "Starting services for ${APP_URL}"
 # Secrets now live in ${ENV_FILE} only, so the services start with an empty environment.
