@@ -63,28 +63,25 @@ RUN apk upgrade --no-cache \
         /var/run/supervisord \
         /var/lib/nginx
 
-# The code stays owned by root: the runtime user only writes Laravel's caches, the generated JS/CSS and /data.
+# The code stays owned by root: the runtime user only writes Laravel's caches, the generated JS/CSS,
+# the modules' assets links and /data, which holds the modules so that they install from the interface.
 COPY --from=source /container/data/freescout/install /var/www/html
-COPY modules/ /var/www/html/Modules/
-# A module without assets gets an empty Public folder, which git does not keep: its link must lead somewhere.
-RUN mkdir -p /usr/src \
+COPY modules/ /usr/src/freescout-modules/
+RUN { ls /usr/src/freescout-modules/*/module.json >/dev/null 2>&1 \
+        || { echo "No module in modules/: run git submodule update --init" >&2; exit 1; }; } \
     && mv /var/www/html/storage /usr/src/freescout-storage \
     && ln -s /data/storage /var/www/html/storage \
     && ln -s /data/.env /var/www/html/.env \
     && rm -rf /var/www/html/public/storage \
     && ln -s /var/www/html/storage/app/public /var/www/html/public/storage \
+    && rm -rf /var/www/html/Modules \
+    && ln -s /data/Modules /var/www/html/Modules \
     && mkdir -p /var/www/html/public/modules \
-    && for module_manifest in /var/www/html/Modules/*/module.json; do \
-           [ -f "${module_manifest}" ] || { echo "No module in modules/: run git submodule update --init" >&2; exit 1; }; \
-           module_dir=$(dirname "${module_manifest}"); \
-           module_alias=$(php -r 'echo json_decode(file_get_contents($argv[1]))->alias;' -- "${module_manifest}"); \
-           mkdir -p "${module_dir}/Public"; \
-           ln -s "${module_dir}/Public" "/var/www/html/public/modules/${module_alias}"; \
-       done \
     && chown -R ${UID}:${GID} \
         /var/www/html/bootstrap/cache \
         /var/www/html/public/js/builds \
-        /var/www/html/public/css/builds
+        /var/www/html/public/css/builds \
+        /var/www/html/public/modules
 
 COPY docker/nginx/nginx.conf     /etc/nginx/nginx.conf
 COPY docker/nginx/freescout.conf /etc/nginx/http.d/default.conf
