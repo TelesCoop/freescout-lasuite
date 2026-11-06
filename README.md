@@ -6,13 +6,14 @@ A [FreeScout](https://freescout.net/) image that runs entirely without root, for
 
 - The FreeScout code, Composer dependencies included, is taken from the [nfrastack/container-freescout](https://github.com/nfrastack/container-freescout) image (`FREESCOUT_IMAGE` argument of the `Dockerfile`).
 - It runs on a minimal Alpine runtime: nginx on port **8080**, php-fpm 8.5 with `intl` for localized dates, the queue worker and the scheduler, all managed by supervisord.
-- Every process runs as UID/GID **1000**. The application code and the server configuration are owned by root and read-only: the runtime user can only write to `/data`, Laravel's `bootstrap/cache` and the generated JS/CSS builds.
+- Every process runs as UID/GID **1000**. The application code and the server configuration are owned by root and read-only: the runtime user can only write to `/data`, Laravel's `bootstrap/cache`, the generated JS/CSS builds and the modules' assets links. The modules are the exception: they live in `/data/Modules`, so that they can be installed and updated from the interface.
 - Secrets only live in `/data/.env`: the services start with an empty environment, so `DB_PASS`, `ADMIN_PASS` or `APP_KEY` cannot be read from it.
 - The web installer (`/install`), `install.php` and `tools.php` answer 404, and nginx does not disclose its version.
 - If a service keeps crashing, the container stops so the orchestrator restarts it.
 - Persistent data lives in **`/data`**:
   - `.env`, which holds the `APP_KEY`;
-  - `storage/`: attachments, sessions, logs.
+  - `storage/`: attachments, sessions, logs;
+  - `Modules/`: the FreeScout modules, bundled or installed from the interface.
 
 ## Images
 
@@ -101,9 +102,9 @@ What [`deploy/kubernetes/freescout.yaml`](deploy/kubernetes/freescout.yaml) does
 
 `modules/` is a git submodule pinned to a commit of the private [suitenumerique/freescout-modules](https://github.com/suitenumerique/freescout-modules) repository, whose README lists the modules. Clone with `git clone --recurse-submodules`, or run `git submodule update --init` in an existing clone.
 
-Modules live in the image only: the build copies every module of `modules/` and links its public assets, giving an empty `Public` folder to a module without assets, and fails when `modules/` is empty. At startup, only their migrations run, with `module:migrate`. Activate each module once in *Manage » Modules*; the choice is stored in the database.
+The build copies every module of `modules/` into the image, and fails when `modules/` is empty. As in the nfrastack image, `/var/www/html/Modules` links to `/data/Modules`: modules can be installed and updated from *Manage » Modules*, and are kept when the container is recreated.
 
-Modules installed from the web interface are lost when the container is recreated: add them to `modules/` instead.
+At each start, the entrypoint replaces the bundled modules in `/data/Modules` with the image's version and leaves the other modules untouched. It links the public assets of every module, giving an empty `Public` folder to a module without assets, and runs the migrations of the bundled modules with `module:migrate`; the interface migrates the modules it installs or updates. Activate each module once in *Manage » Modules*; the choice is stored in the database.
 
 **Updating the modules:** the `.github/workflows/update-modules.yml` workflow pins the latest commit of the modules every hour, then builds, tests, publishes and deploys the image in preprod. Run it right away with:
 
@@ -135,7 +136,8 @@ The `.github/workflows/build-test.yml` workflow runs these tests and publishes o
   - the admin login;
   - that no process runs as root;
   - that the modules are migrated and their assets linked, and that each of them can be activated;
-  - that the code is read-only, that the services' environment holds no secret and that the installer is blocked;
+  - that a module added to `Modules/` as the interface does can be activated, and that after the container is recreated it keeps its assets link while a bundled module removed from the volume comes back;
+  - that the code is read-only apart from the modules, that the services' environment holds no secret and that the installer is blocked;
   - that after the container is recreated, the `APP_KEY` is kept and the admin is not created again.
 - `tests/k8s.sh <image>` deploys the unmodified manifest to a [kind](https://kind.sigs.k8s.io/) cluster, in a namespace enforcing the `restricted` Pod Security standard. It waits for the deployment to be ready, restarts it on the same volume and checks that no service link leaked into `.env`.
 
