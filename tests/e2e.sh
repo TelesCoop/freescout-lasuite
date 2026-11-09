@@ -16,6 +16,17 @@ DB_PASS='db pass #1 & more'
 PROBE_MODULE_MANIFEST='{"name": "E2eProbe", "alias": "e2eprobe", "description": "", "version": "1.0.0",
 "author": "e2e", "authorUrl": "https://example.com", "license": "AGPL-3.0", "keywords": [], "active": 0,
 "order": 0, "providers": [], "aliases": {}, "files": [], "requires": []}'
+LOG_PROBE_PATH=/var/www/html/public/e2e-log-probe.php
+# Logs through Laravel as the application does, longer than php-fpm's default 1024 bytes as a stack trace often is.
+# shellcheck disable=SC2016 # $app belongs to the PHP code.
+LOG_PROBE='<?php
+require "/var/www/html/vendor/autoload.php";
+$app = require "/var/www/html/bootstrap/app.php";
+$app->bootstrapWith([
+    Illuminate\Foundation\Bootstrap\LoadEnvironmentVariables::class,
+    Illuminate\Foundation\Bootstrap\LoadConfiguration::class,
+]);
+$app->make("log")->error("e2e-log-probe-" . PHP_SAPI . " " . str_repeat("x", 4096) . " end-of-entry");'
 COOKIE_JAR=$(mktemp)
 
 fail() {
@@ -193,6 +204,29 @@ assert_hardened() {
     [ "$(docker exec "${APP_CONTAINER}" wget -qO- http://127.0.0.1:8081/fpm-ping)" = pong ] || fail "php-fpm ping failed"
 }
 
+web_log_entry_received() {
+    docker logs "${APP_CONTAINER}" 2>&1 | grep -q 'e2e-log-probe-fpm-fcgi'
+}
+
+assert_laravel_logs_reach_the_container_output() {
+    local web_entries cli_entries
+    # As root: the runtime user cannot write the code.
+    docker exec -i -u 0 "${APP_CONTAINER}" sh -c "cat > ${LOG_PROBE_PATH}" <<<"${LOG_PROBE}"
+    curl -fsS -o /dev/null "${APP_URL}/$(basename "${LOG_PROBE_PATH}")"
+    wait_until "the web log entry in the container output" web_log_entry_received
+    web_entries=$(docker logs "${APP_CONTAINER}" 2>&1 | grep 'e2e-log-probe-fpm-fcgi')
+    [ "$(wc -l <<<"${web_entries}")" -eq 1 ] || fail "web log entry repeated in the container output: ${web_entries}"
+    grep -q 'x end-of-entry' <<<"${web_entries}" || fail "web log entry truncated in the container output"
+
+    cli_entries=$(docker exec "${APP_CONTAINER}" php "${LOG_PROBE_PATH}" 2>&1 >/dev/null)
+    grep -q 'e2e-log-probe-cli x*x end-of-entry' <<<"${cli_entries}" || fail "command line log entry not sent to stderr"
+
+    docker exec -u 0 "${APP_CONTAINER}" rm "${LOG_PROBE_PATH}"
+    if docker exec "${APP_CONTAINER}" grep -rqs e2e-log-probe /data/storage/logs; then
+        fail "Laravel still writes its logs to /data/storage/logs"
+    fi
+}
+
 fetch_modules_csrf_token() {
     local modules_page csrf_token
     modules_page=$(curl -fsS -b "${COOKIE_JAR}" "${APP_URL}/modules/list")
@@ -260,6 +294,7 @@ assert_admin_can_log_in
 assert_runs_unprivileged
 assert_modules_installed
 assert_hardened
+assert_laravel_logs_reach_the_container_output
 assert_modules_activate
 assert_module_installs_like_the_interface
 app_key=$(docker exec "${APP_CONTAINER}" grep '^APP_KEY=' /data/.env)

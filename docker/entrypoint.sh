@@ -102,6 +102,8 @@ configure_env() {
     set_env APP_TRUSTED_HOSTS "${app_host},localhost,127.0.0.1"
     set_env APP_TIMEZONE "${TIMEZONE:-UTC}"
     set_env APP_DISABLE_UPDATING true
+    # Laravel logs to stderr, which reaches the container output instead of an unrotated file in /data.
+    set_env APP_LOG errorlog
     case "${app_url_lowercase}" in
         https://*) set_env SESSION_SECURE_COOKIE true ;;
         *)         set_env SESSION_SECURE_COOKIE false ;;
