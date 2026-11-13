@@ -19,7 +19,7 @@ jobs:
     outputs:
       image-tag: ${{ steps.publish.outputs.image-tag }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The deploy key only grants access to the modules repository, so it is checked out separately.
       - name: Read the pinned modules commit
@@ -27,7 +27,7 @@ jobs:
         run: echo "commit=$(git ls-tree HEAD modules | awk '{print $3}')" >> "${GITHUB_OUTPUT}"
 
       - name: Checkout FreeScout modules
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: suitenumerique/freescout-modules
           ref: ${{ steps.modules.outputs.commit }}
@@ -70,7 +70,7 @@ jobs:
     steps:
       # The deploy key only grants write access to the infrastructure repository, which ArgoCD deploys.
       - name: Checkout the infrastructure
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: numerique-gouv/infra-freescout
           ssh-key: ${{ secrets.INFRA_DEPLOY_KEY }}
