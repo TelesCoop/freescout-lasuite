@@ -60,7 +60,7 @@ services:
     restart: always
 
   freescout-db:
-    image: docker.io/nfrastack/mariadb:11.8
+    image: docker.io/nfrastack/mariadb:12.3
     container_name: freescout-db
     volumes:
       - ./db:/data
