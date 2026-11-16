@@ -48,7 +48,7 @@ RUN apk upgrade --no-cache \
     && php -v \
     && php-fpm -v \
     && sed -E -i \
-        -e 's|^;?error_log = .*|error_log = /proc/self/fd/1|' \
+        -e 's|^;?error_log = .*|error_log = /proc/self/fd/2|' \
         -e 's|^;?log_limit = .*|log_limit = 65536|' \
         /etc/${PHP_PKG}/php-fpm.conf \
     && ln -sf /dev/stdout /var/log/nginx/access.log \

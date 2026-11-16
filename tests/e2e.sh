@@ -165,10 +165,10 @@ assert_runs_unprivileged() {
         fi
     done
 
-    docker exec "${APP_CONTAINER}" sh -c "grep -q '^error_log = /proc/self/fd/1' /etc/php*/php-fpm.conf" \
-        || fail "php-fpm error_log is not sent to stdout"
-    docker exec "${APP_CONTAINER}" sh -c "grep -q '^access.log = /proc/self/fd/1' /etc/php*/php-fpm.d/www.conf" \
-        || fail "php-fpm access.log is not sent to stdout"
+    docker exec "${APP_CONTAINER}" sh -c "grep -q '^error_log = /proc/self/fd/2' /etc/php*/php-fpm.conf" \
+        || fail "php-fpm error_log is not sent to stderr"
+    docker exec "${APP_CONTAINER}" sh -c "grep -q '^access.log = /proc/self/fd/2' /etc/php*/php-fpm.d/www.conf" \
+        || fail "php-fpm access.log is not sent to stderr"
     docker exec "${APP_CONTAINER}" php -r 'exit(extension_loaded("intl") && extension_loaded("Zend OPcache") ? 0 : 1);' \
         || fail "intl or OPcache extension missing"
 }
