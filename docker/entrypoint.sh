@@ -105,7 +105,7 @@ configure_env() {
     # Laravel logs to stderr, which reaches the container output instead of an unrotated file in /data.
     set_env APP_LOG errorlog
     # FreeScout only logs errors by default.
-    set_env APP_LOG_LEVEL info
+    set_env APP_LOG_LEVEL debug
     case "${app_url_lowercase}" in
         https://*) set_env SESSION_SECURE_COOKIE true ;;
         *)         set_env SESSION_SECURE_COOKIE false ;;

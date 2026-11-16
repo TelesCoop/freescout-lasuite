@@ -17,7 +17,7 @@ PROBE_MODULE_MANIFEST='{"name": "E2eProbe", "alias": "e2eprobe", "description": 
 "author": "e2e", "authorUrl": "https://example.com", "license": "AGPL-3.0", "keywords": [], "active": 0,
 "order": 0, "providers": [], "aliases": {}, "files": [], "requires": []}'
 LOG_PROBE_PATH=/var/www/html/public/e2e-log-probe.php
-# Logs an info entry through Laravel as the application does, longer than php-fpm's default 1024 bytes as a stack trace often is.
+# Logs a debug entry through Laravel as the application does, longer than php-fpm's default 1024 bytes as a stack trace often is.
 # shellcheck disable=SC2016 # $app belongs to the PHP code.
 LOG_PROBE='<?php
 require "/var/www/html/vendor/autoload.php";
@@ -26,7 +26,7 @@ $app->bootstrapWith([
     Illuminate\Foundation\Bootstrap\LoadEnvironmentVariables::class,
     Illuminate\Foundation\Bootstrap\LoadConfiguration::class,
 ]);
-$app->make("log")->info("e2e-log-probe-" . PHP_SAPI . " " . str_repeat("x", 4096) . " end-of-entry");'
+$app->make("log")->debug("e2e-log-probe-" . PHP_SAPI . " " . str_repeat("x", 4096) . " end-of-entry");'
 COOKIE_JAR=$(mktemp)
 
 fail() {
