@@ -10,7 +10,7 @@ A [FreeScout](https://freescout.net/) image that runs entirely without root, for
 - Secrets only live in `/data/.env`: the services start with an empty environment, so `DB_PASS`, `ADMIN_PASS` or `APP_KEY` cannot be read from it.
 - The web installer (`/install`), `install.php` and `tools.php` answer 404, and nginx does not disclose its version.
 - If a service keeps crashing, the container stops so the orchestrator restarts it.
-- nginx, php-fpm, the services and Laravel log to the container output. For Laravel, the entrypoint sets `APP_LOG=errorlog`, which `FREESCOUT_APP_LOG` overrides; each entry fits on one line, stack trace included, up to 64 KiB.
+- nginx, php-fpm, the services and Laravel log to the container output. For Laravel, the entrypoint sets `APP_LOG=errorlog` and `APP_LOG_LEVEL=info`, which `FREESCOUT_APP_LOG` and `FREESCOUT_APP_LOG_LEVEL` override; each entry fits on one line, stack trace included, up to 64 KiB.
 - Persistent data lives in **`/data`**:
   - `.env`, which holds the `APP_KEY`;
   - `storage/`: attachments, sessions, the output of the last mail fetch;
