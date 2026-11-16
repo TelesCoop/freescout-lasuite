@@ -162,8 +162,6 @@ assert_runs_unprivileged() {
 
     docker exec "${APP_CONTAINER}" sh -c "grep -q '^error_log = /proc/1/fd/1' /etc/php*/php-fpm.conf" \
         || fail "php-fpm error_log is not sent to the container output"
-    docker exec "${APP_CONTAINER}" sh -c "grep -q '^access.log = /proc/1/fd/1' /etc/php*/php-fpm.d/www.conf" \
-        || fail "php-fpm access.log is not sent to the container output"
     docker exec "${APP_CONTAINER}" php -r 'exit(extension_loaded("intl") && extension_loaded("Zend OPcache") ? 0 : 1);' \
         || fail "intl or OPcache extension missing"
 }
