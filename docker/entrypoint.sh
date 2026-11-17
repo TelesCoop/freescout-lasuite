@@ -5,8 +5,12 @@ APP_DIR=/var/www/html
 DATA_DIR=/data
 ENV_FILE="${DATA_DIR}/.env"
 BUNDLED_MODULES_DIR=/usr/src/freescout-modules
+BUNDLED_MODULE_MARKER=.bundled-module
+CONTAINER_OUTPUT=/var/run/freescout/output
 
 log() { printf '[entrypoint] %s\n' "$*"; }
+
+warn() { printf '[entrypoint] WARNING: %s\n' "$*" >&2; }
 
 fail() {
     printf '[entrypoint] ERROR: %s\n' "$*" >&2
@@ -46,6 +50,11 @@ $(env | sed -n '/^[A-Za-z_][A-Za-z0-9_]*_FILE=/p')
 EOF
 }
 
+# The error_log of php.ini: the output of this process, which supervisord keeps once exec'd below.
+link_container_output() {
+    ln -sfn "/proc/$$/fd/1" "${CONTAINER_OUTPUT}"
+}
+
 seed_persistent_storage() {
     if [ ! -d "${DATA_DIR}/storage" ]; then
         log "Seeding ${DATA_DIR}/storage"
@@ -53,28 +62,43 @@ seed_persistent_storage() {
     fi
 }
 
-# Modules installed from the interface stay as they are; the bundled ones are reset to the image's version.
+# Modules installed from the interface stay as they are; the bundled ones follow the image, which can drop one.
 sync_bundled_modules() {
     local module_manifest module_dir module_name
     mkdir -p "${DATA_DIR}/Modules"
+    for module_dir in "${DATA_DIR}"/Modules/*/; do
+        module_name=$(basename "${module_dir}")
+        if [ -f "${module_dir}${BUNDLED_MODULE_MARKER}" ] && [ ! -d "${BUNDLED_MODULES_DIR}/${module_name}" ]; then
+            log "Removing module ${module_name}, no longer bundled"
+            rm -rf "${module_dir}"
+        fi
+    done
     for module_manifest in "${BUNDLED_MODULES_DIR}"/*/module.json; do
         module_dir=$(dirname "${module_manifest}")
         module_name=$(basename "${module_dir}")
         rm -rf "${DATA_DIR}/Modules/${module_name}"
         cp -R "${module_dir}" "${DATA_DIR}/Modules/${module_name}"
+        touch "${DATA_DIR}/Modules/${module_name}/${BUNDLED_MODULE_MARKER}"
     done
 }
 
 # public/ belongs to the image, so the links lost with the previous container are recreated.
 # A module without assets gets an empty Public folder, which git does not keep: its link must lead somewhere.
 link_module_assets() {
-    local module_manifest module_dir module_alias
-    for module_manifest in "${APP_DIR}"/Modules/*/module.json; do
-        module_dir=$(dirname "${module_manifest}")
-        module_alias=$(php -r 'echo json_decode(file_get_contents($argv[1]))->alias;' -- "${module_manifest}")
+    local module_aliases module_dir module_alias
+    module_aliases=$(module-aliases "${APP_DIR}/Modules")
+    while IFS="$(printf '\t')" read -r module_dir module_alias; do
+        [ -n "${module_dir}" ] || continue
+        # A module installed from the interface can bring a broken Public link: the container still starts.
+        if [ -L "${module_dir}/Public" ] && [ ! -d "${module_dir}/Public" ]; then
+            warn "${module_dir}/Public is a broken link: the assets of module ${module_alias} are not published"
+            continue
+        fi
         mkdir -p "${module_dir}/Public"
         ln -sfn "${module_dir}/Public" "${APP_DIR}/public/modules/${module_alias}"
-    done
+    done <<EOF
+${module_aliases}
+EOF
 }
 
 configure_env() {
@@ -102,8 +126,10 @@ configure_env() {
     set_env APP_TRUSTED_HOSTS "${app_host},localhost,127.0.0.1"
     set_env APP_TIMEZONE "${TIMEZONE:-UTC}"
     set_env APP_DISABLE_UPDATING true
-    # Laravel logs to stderr, which reaches the container output instead of an unrotated file in /data.
+    # Through PHP's error_log, which php.ini sends to the container output.
     set_env APP_LOG errorlog
+    # FreeScout only logs errors by default.
+    set_env APP_LOG_LEVEL debug
     case "${app_url_lowercase}" in
         https://*) set_env SESSION_SECURE_COOKIE true ;;
         *)         set_env SESSION_SECURE_COOKIE false ;;
@@ -185,6 +211,7 @@ migrate_bundled_modules() {
     done
 }
 
+link_container_output
 resolve_file_secrets
 seed_persistent_storage
 sync_bundled_modules

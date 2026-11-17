@@ -1,6 +1,5 @@
-ARG FREESCOUT_IMAGE=ghcr.io/nfrastack/container-freescout:2.2.21-php8.5-alpine_3.24@sha256:5a1bc12791842f4b060adc524d97be206a2b057c2fadfc643dc9dfcd9b63bbf0
-
-FROM ${FREESCOUT_IMAGE} AS source
+# Written in full, without an ARG, for Dependabot to update it.
+FROM ghcr.io/nfrastack/container-freescout:2.2.21-php8.5-alpine_3.24@sha256:5a1bc12791842f4b060adc524d97be206a2b057c2fadfc643dc9dfcd9b63bbf0 AS source
 
 FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 
@@ -58,12 +57,14 @@ RUN apk upgrade --no-cache \
         /var/run/nginx \
         /var/run/php-fpm \
         /var/run/supervisord \
+        /var/run/freescout \
         /var/lib/nginx/tmp \
     && chown -R ${UID}:${GID} \
         /data \
         /var/run/nginx \
         /var/run/php-fpm \
         /var/run/supervisord \
+        /var/run/freescout \
         /var/lib/nginx
 
 # The code stays owned by root: the runtime user only writes Laravel's caches, the generated JS/CSS,
@@ -86,6 +87,14 @@ RUN { ls /usr/src/freescout-modules/*/module.json >/dev/null 2>&1 \
         /var/www/html/public/css/builds \
         /var/www/html/public/modules
 
+# A patch that no longer applies to the FreeScout code fails the build.
+RUN --mount=type=bind,source=docker/patches,target=/tmp/patches \
+    apk add --no-cache --virtual .patch-deps patch \
+    && for patch_file in /tmp/patches/*.patch; do \
+        patch --directory=/var/www/html --strip=1 --forward --input="${patch_file}" || exit 1; \
+    done \
+    && apk del .patch-deps
+
 COPY docker/nginx/nginx.conf     /etc/nginx/nginx.conf
 COPY docker/nginx/freescout.conf /etc/nginx/http.d/default.conf
 COPY docker/nginx/health.conf    /etc/nginx/http.d/health.conf
@@ -96,6 +105,7 @@ COPY --chmod=755 docker/entrypoint.sh    /entrypoint.sh
 COPY --chmod=755 docker/worker.sh        /usr/local/bin/worker.sh
 COPY --chmod=755 docker/scheduler.sh     /usr/local/bin/scheduler.sh
 COPY --chmod=755 docker/exit-on-fatal.sh /usr/local/bin/exit-on-fatal.sh
+COPY --chmod=755 docker/module-aliases.php /usr/local/bin/module-aliases
 
 WORKDIR /var/www/html
 EXPOSE 8080

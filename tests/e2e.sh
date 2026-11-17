@@ -17,7 +17,7 @@ PROBE_MODULE_MANIFEST='{"name": "E2eProbe", "alias": "e2eprobe", "description": 
 "author": "e2e", "authorUrl": "https://example.com", "license": "AGPL-3.0", "keywords": [], "active": 0,
 "order": 0, "providers": [], "aliases": {}, "files": [], "requires": []}'
 LOG_PROBE_PATH=/var/www/html/public/e2e-log-probe.php
-# Logs through Laravel as the application does, longer than php-fpm's default 1024 bytes as a stack trace often is.
+# Logs a debug entry through Laravel as an error report does: a long message and an exception.
 # shellcheck disable=SC2016 # $app belongs to the PHP code.
 LOG_PROBE='<?php
 require "/var/www/html/vendor/autoload.php";
@@ -26,7 +26,10 @@ $app->bootstrapWith([
     Illuminate\Foundation\Bootstrap\LoadEnvironmentVariables::class,
     Illuminate\Foundation\Bootstrap\LoadConfiguration::class,
 ]);
-$app->make("log")->error("e2e-log-probe-" . PHP_SAPI . " " . str_repeat("x", 4096) . " end-of-entry");'
+$app->make("log")->debug(
+    "e2e-log-probe-" . PHP_SAPI . " " . str_repeat("x", 4096) . " end-of-entry",
+    ["exception" => new Exception("e2e-log-probe-exception")]
+);'
 COOKIE_JAR=$(mktemp)
 
 fail() {
@@ -204,22 +207,28 @@ assert_hardened() {
     [ "$(docker exec "${APP_CONTAINER}" wget -qO- http://127.0.0.1:8081/fpm-ping)" = pong ] || fail "php-fpm ping failed"
 }
 
-web_log_entry_received() {
-    docker logs "${APP_CONTAINER}" 2>&1 | grep -q 'e2e-log-probe-fpm-fcgi'
+# Not grep -q: exiting at the first match would break the pipe of docker logs, and pipefail would report a failure.
+log_entry_received() {
+    docker logs "${APP_CONTAINER}" 2>&1 | grep -F -- "$1" >/dev/null
 }
 
 assert_laravel_logs_reach_the_container_output() {
-    local web_entries cli_entries
+    local web_entries
     # As root: the runtime user cannot write the code.
     docker exec -i -u 0 "${APP_CONTAINER}" sh -c "cat > ${LOG_PROBE_PATH}" <<<"${LOG_PROBE}"
     curl -fsS -o /dev/null "${APP_URL}/$(basename "${LOG_PROBE_PATH}")"
-    wait_until "the web log entry in the container output" web_log_entry_received
+    wait_until "the web log entry in the container output" log_entry_received e2e-log-probe-fpm-fcgi
     web_entries=$(docker logs "${APP_CONTAINER}" 2>&1 | grep 'e2e-log-probe-fpm-fcgi')
     [ "$(wc -l <<<"${web_entries}")" -eq 1 ] || fail "web log entry repeated in the container output: ${web_entries}"
     grep -q 'x end-of-entry' <<<"${web_entries}" || fail "web log entry truncated in the container output"
+    grep -qE '^\[[^]]+\] [a-z]+\.DEBUG: e2e-log-probe-fpm-fcgi' <<<"${web_entries}" \
+        || fail "web log entry not dated exactly once: ${web_entries:0:200}"
+    # The context is JSON: the line breaks of the stack trace stay escaped.
+    grep -qF '[stacktrace]\n#0' <<<"${web_entries}" || fail "web log entry lacks its stack trace on its line"
 
-    cli_entries=$(docker exec "${APP_CONTAINER}" php "${LOG_PROBE_PATH}" 2>&1 >/dev/null)
-    grep -q 'e2e-log-probe-cli x*x end-of-entry' <<<"${cli_entries}" || fail "command line log entry not sent to stderr"
+    # As the scheduler runs its commands, output discarded.
+    docker exec "${APP_CONTAINER}" sh -c "php ${LOG_PROBE_PATH} >/dev/null 2>&1"
+    wait_until "the command line log entry in the container output" log_entry_received e2e-log-probe-cli
 
     docker exec -u 0 "${APP_CONTAINER}" rm "${LOG_PROBE_PATH}"
     if docker exec "${APP_CONTAINER}" grep -rqs e2e-log-probe /data/storage/logs; then
@@ -250,9 +259,7 @@ activate_module() {
 # Activation clears the caches and regenerates the JS/CSS builds, so it exercises every path left writable.
 assert_modules_activate() {
     local module_aliases module_alias csrf_token dashboard_status
-    # shellcheck disable=SC2016 # $manifest belongs to the PHP code.
-    module_aliases=$(docker exec "${APP_CONTAINER}" php -r \
-        'foreach (glob("/var/www/html/Modules/*/module.json") as $manifest) { echo json_decode(file_get_contents($manifest))->alias, "\n"; }')
+    module_aliases=$(docker exec "${APP_CONTAINER}" module-aliases /var/www/html/Modules | cut -f2)
     [ -n "${module_aliases}" ] || fail "no module in the image"
     csrf_token=$(fetch_modules_csrf_token)
     for module_alias in ${module_aliases}; do
@@ -274,9 +281,49 @@ assert_module_installs_like_the_interface() {
         || fail "assets of the module installed like the interface are not linked"
 }
 
+# Installed from the interface, these modules cannot have their assets linked: the container must start anyway.
+add_unlinkable_modules() {
+    docker exec -i "${APP_CONTAINER}" sh -c \
+        'mkdir -p /var/www/html/Modules/E2eLoop && ln -s Public /var/www/html/Modules/E2eLoop/Public &&
+        cat > /var/www/html/Modules/E2eLoop/module.json' \
+        <<<"$(sed 's/E2eProbe/E2eLoop/; s/e2eprobe/e2eloop/' <<<"${PROBE_MODULE_MANIFEST}")"
+    docker exec -i "${APP_CONTAINER}" sh -c \
+        'mkdir -p /var/www/html/Modules/E2eNoAlias && cat > /var/www/html/Modules/E2eNoAlias/module.json' \
+        <<<"$(sed 's/E2eProbe/E2eNoAlias/; s/"alias": "e2eprobe", //' <<<"${PROBE_MODULE_MANIFEST}")"
+}
+
+assert_unlinkable_modules_reported() {
+    local start_logs="$1"
+    grep -q 'E2eLoop/Public is a broken link' <<<"${start_logs}" || fail "module with a broken Public link not reported"
+    grep -q 'no valid alias in .*E2eNoAlias' <<<"${start_logs}" || fail "module without alias not reported"
+    docker exec "${APP_CONTAINER}" rm -rf /var/www/html/Modules/E2eLoop /var/www/html/Modules/E2eNoAlias
+}
+
+# As left by a previous image that bundled it.
+add_module_dropped_from_the_image() {
+    docker exec -i "${APP_CONTAINER}" sh -c \
+        'mkdir -p /var/www/html/Modules/E2eDropped && touch /var/www/html/Modules/E2eDropped/.bundled-module &&
+        cat > /var/www/html/Modules/E2eDropped/module.json' \
+        <<<"$(sed 's/E2eProbe/E2eDropped/; s/e2eprobe/e2edropped/' <<<"${PROBE_MODULE_MANIFEST}")"
+}
+
+assert_writable_folders_execute_no_php() {
+    local web_path status
+    for web_path in modules/e2eprobe js/builds css/builds; do
+        docker exec "${APP_CONTAINER}" sh -c "echo '<?php echo 1;' > /var/www/html/public/${web_path}/e2e-probe.php" \
+            || fail "the runtime user cannot write to public/${web_path}"
+        status=$(curl -s -o /dev/null -w '%{http_code}' "${APP_URL}/${web_path}/e2e-probe.php")
+        [ "${status}" = 404 ] || fail "/${web_path}/e2e-probe.php returned ${status}, expected 404"
+        docker exec "${APP_CONTAINER}" rm "/var/www/html/public/${web_path}/e2e-probe.php"
+    done
+}
+
 assert_modules_kept_on_recreation() {
     docker exec "${APP_CONTAINER}" test -f /var/www/html/Modules/Presence/module.json \
         || fail "bundled module removed from the volume was not restored"
+    if docker exec "${APP_CONTAINER}" test -e /var/www/html/Modules/E2eDropped; then
+        fail "module no longer bundled by the image was kept"
+    fi
     docker exec "${APP_CONTAINER}" test -d /var/www/html/public/modules/e2eprobe \
         || fail "module installed like the interface lost its assets link on recreation"
     assert_modules_installed
@@ -297,6 +344,9 @@ assert_hardened
 assert_laravel_logs_reach_the_container_output
 assert_modules_activate
 assert_module_installs_like_the_interface
+assert_writable_folders_execute_no_php
+add_unlinkable_modules
+add_module_dropped_from_the_image
 app_key=$(docker exec "${APP_CONTAINER}" grep '^APP_KEY=' /data/.env)
 docker exec "${APP_CONTAINER}" rm -rf /var/www/html/Modules/Presence
 
@@ -305,6 +355,7 @@ docker rm -f "${APP_CONTAINER}" >/dev/null
 start_app
 assert_modules_kept_on_recreation
 second_start_logs=$(docker logs "${APP_CONTAINER}" 2>&1)
+assert_unlinkable_modules_reported "${second_start_logs}"
 if grep -q 'creating admin' <<<"${second_start_logs}"; then
     fail "admin re-created on restart"
 fi

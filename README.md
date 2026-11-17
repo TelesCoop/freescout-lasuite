@@ -4,13 +4,13 @@ A [FreeScout](https://freescout.net/) image that runs entirely without root, for
 
 ## How it works
 
-- The FreeScout code, Composer dependencies included, is taken from the [nfrastack/container-freescout](https://github.com/nfrastack/container-freescout) image (`FREESCOUT_IMAGE` argument of the `Dockerfile`).
+- The FreeScout code, Composer dependencies included, is taken from the [nfrastack/container-freescout](https://github.com/nfrastack/container-freescout) image (first `FROM` of the `Dockerfile`).
 - It runs on a minimal Alpine runtime: nginx on port **8080**, php-fpm 8.5 with `intl` for localized dates, the queue worker and the scheduler, all managed by supervisord.
 - Every process runs as UID/GID **1000**. The application code and the server configuration are owned by root and read-only: the runtime user can only write to `/data`, Laravel's `bootstrap/cache`, the generated JS/CSS builds and the modules' assets links. The modules are the exception: they live in `/data/Modules`, so that they can be installed and updated from the interface.
 - Secrets only live in `/data/.env`: the services start with an empty environment, so `DB_PASS`, `ADMIN_PASS` or `APP_KEY` cannot be read from it.
-- The web installer (`/install`), `install.php` and `tools.php` answer 404, and nginx does not disclose its version.
+- The web installer (`/install`), `install.php` and `tools.php` answer 404, as does PHP placed in a public folder the runtime user writes (the modules' assets and the JS/CSS builds). nginx does not disclose its version.
 - If a service keeps crashing, the container stops so the orchestrator restarts it.
-- nginx, php-fpm, the services and Laravel log to the container output. For Laravel, the entrypoint sets `APP_LOG=errorlog`, which `FREESCOUT_APP_LOG` overrides; each entry fits on one line, stack trace included, up to 64 KiB.
+- nginx, php-fpm, the services and Laravel log to the container output. PHP writes its error log, hence Laravel's, to `/var/run/freescout/output`, which the entrypoint links to its own output, kept by supervisord: the logs of the commands run by the scheduler, which discards their output, reach it too. For Laravel, the entrypoint sets `APP_LOG=errorlog` and `APP_LOG_LEVEL=debug`, which `FREESCOUT_APP_LOG` and `FREESCOUT_APP_LOG_LEVEL` override; each entry fits on one line, stack trace included.
 - Persistent data lives in **`/data`**:
   - `.env`, which holds the `APP_KEY`;
   - `storage/`: attachments, sessions, the output of the last mail fetch;
@@ -105,7 +105,7 @@ What [`deploy/kubernetes/freescout.yaml`](deploy/kubernetes/freescout.yaml) does
 
 The build copies every module of `modules/` into the image, and fails when `modules/` is empty. As in the nfrastack image, `/var/www/html/Modules` links to `/data/Modules`: modules can be installed and updated from *Manage » Modules*, and are kept when the container is recreated.
 
-At each start, the entrypoint replaces the bundled modules in `/data/Modules` with the image's version and leaves the other modules untouched. It links the public assets of every module, giving an empty `Public` folder to a module without assets, and runs the migrations of the bundled modules with `module:migrate`; the interface migrates the modules it installs or updates. Activate each module once in *Manage » Modules*; the choice is stored in the database.
+At each start, the entrypoint replaces the bundled modules in `/data/Modules` with the image's version, removes those the image no longer bundles (marked by a `.bundled-module` file) and leaves the modules installed from the interface untouched. It links the public assets of every module, giving an empty `Public` folder to a module without assets; a module whose `Public` is a broken link or whose alias is invalid is reported and left unlinked. It then runs the migrations of the bundled modules with `module:migrate`; the interface migrates the modules it installs or updates. Activate each module once in *Manage » Modules*; the choice is stored in the database.
 
 **Updating the modules:** the `.github/workflows/update-modules.yml` workflow pins the latest commit of the modules every hour, then builds, tests, publishes and deploys the image in preprod. Run it right away with:
 
@@ -121,7 +121,9 @@ Each image published from `main` is deployed in preprod: CI writes its tag in `e
 
 ## Upgrading FreeScout
 
-Change the nfrastack image tag **and digest** in the `FREESCOUT_IMAGE` argument of the `Dockerfile`, then push to `main`. CI tests and publishes the image.
+Change the nfrastack image tag **and digest** in the first `FROM` of the `Dockerfile`, or merge the Dependabot pull request that does, then push to `main`. CI tests and publishes the image.
+
+The build applies the patches of `docker/patches/` to the FreeScout code, and fails when one of them no longer applies: Laravel's `errorlog` handler, for instance, is patched to keep stack traces.
 
 The base images and the GitHub actions are pinned by digest or commit SHA, so a re-published upstream tag cannot change the build. Get the digest of a tag with:
 
@@ -137,9 +139,9 @@ The `.github/workflows/build-test.yml` workflow runs these tests and publishes o
   - the admin login;
   - that no process runs as root;
   - that the modules are migrated and their assets linked, and that each of them can be activated;
-  - that a module added to `Modules/` as the interface does can be activated, and that after the container is recreated it keeps its assets link while a bundled module removed from the volume comes back;
-  - that the code is read-only apart from the modules, that the services' environment holds no secret and that the installer is blocked;
-  - that Laravel's logs reach the container output once and whole, from php-fpm and from the command line, and are not written to `/data`;
+  - that a module added to `Modules/` as the interface does can be activated, and that after the container is recreated it keeps its assets link while a bundled module removed from the volume comes back, a module the image no longer bundles is removed, and a module whose assets cannot be linked is reported without stopping the start;
+  - that the code is read-only apart from the modules, that PHP placed in the public folders the runtime user writes is not executed, that the services' environment holds no secret and that the installer is blocked;
+  - that Laravel's logs reach the container output once and whole, stack trace included, from php-fpm and from a command whose output is discarded as the scheduler does, and are not written to `/data`;
   - that after the container is recreated, the `APP_KEY` is kept and the admin is not created again.
 - `tests/k8s.sh <image>` deploys the unmodified manifest to a [kind](https://kind.sigs.k8s.io/) cluster, in a namespace enforcing the `restricted` Pod Security standard. It waits for the deployment to be ready, restarts it on the same volume and checks that no service link leaked into `.env`.
 
