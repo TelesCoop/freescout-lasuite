@@ -5,6 +5,7 @@ APP_DIR=/var/www/html
 DATA_DIR=/data
 ENV_FILE="${DATA_DIR}/.env"
 BUNDLED_MODULES_DIR=/usr/src/freescout-modules
+BUNDLED_MODULE_MARKER=.bundled-module
 CONTAINER_OUTPUT=/var/run/freescout/output
 
 log() { printf '[entrypoint] %s\n' "$*"; }
@@ -61,15 +62,23 @@ seed_persistent_storage() {
     fi
 }
 
-# Modules installed from the interface stay as they are; the bundled ones are reset to the image's version.
+# Modules installed from the interface stay as they are; the bundled ones follow the image, which can drop one.
 sync_bundled_modules() {
     local module_manifest module_dir module_name
     mkdir -p "${DATA_DIR}/Modules"
+    for module_dir in "${DATA_DIR}"/Modules/*/; do
+        module_name=$(basename "${module_dir}")
+        if [ -f "${module_dir}${BUNDLED_MODULE_MARKER}" ] && [ ! -d "${BUNDLED_MODULES_DIR}/${module_name}" ]; then
+            log "Removing module ${module_name}, no longer bundled"
+            rm -rf "${module_dir}"
+        fi
+    done
     for module_manifest in "${BUNDLED_MODULES_DIR}"/*/module.json; do
         module_dir=$(dirname "${module_manifest}")
         module_name=$(basename "${module_dir}")
         rm -rf "${DATA_DIR}/Modules/${module_name}"
         cp -R "${module_dir}" "${DATA_DIR}/Modules/${module_name}"
+        touch "${DATA_DIR}/Modules/${module_name}/${BUNDLED_MODULE_MARKER}"
     done
 }
 

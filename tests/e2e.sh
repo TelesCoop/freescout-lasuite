@@ -297,6 +297,14 @@ assert_unlinkable_modules_reported() {
     docker exec "${APP_CONTAINER}" rm -rf /var/www/html/Modules/E2eLoop /var/www/html/Modules/E2eNoAlias
 }
 
+# As left by a previous image that bundled it.
+add_module_dropped_from_the_image() {
+    docker exec -i "${APP_CONTAINER}" sh -c \
+        'mkdir -p /var/www/html/Modules/E2eDropped && touch /var/www/html/Modules/E2eDropped/.bundled-module &&
+        cat > /var/www/html/Modules/E2eDropped/module.json' \
+        <<<"$(sed 's/E2eProbe/E2eDropped/; s/e2eprobe/e2edropped/' <<<"${PROBE_MODULE_MANIFEST}")"
+}
+
 assert_writable_folders_execute_no_php() {
     local web_path status
     for web_path in modules/e2eprobe js/builds css/builds; do
@@ -311,6 +319,9 @@ assert_writable_folders_execute_no_php() {
 assert_modules_kept_on_recreation() {
     docker exec "${APP_CONTAINER}" test -f /var/www/html/Modules/Presence/module.json \
         || fail "bundled module removed from the volume was not restored"
+    if docker exec "${APP_CONTAINER}" test -e /var/www/html/Modules/E2eDropped; then
+        fail "module no longer bundled by the image was kept"
+    fi
     docker exec "${APP_CONTAINER}" test -d /var/www/html/public/modules/e2eprobe \
         || fail "module installed like the interface lost its assets link on recreation"
     assert_modules_installed
@@ -333,6 +344,7 @@ assert_modules_activate
 assert_module_installs_like_the_interface
 assert_writable_folders_execute_no_php
 add_unlinkable_modules
+add_module_dropped_from_the_image
 app_key=$(docker exec "${APP_CONTAINER}" grep '^APP_KEY=' /data/.env)
 docker exec "${APP_CONTAINER}" rm -rf /var/www/html/Modules/Presence
 

@@ -105,7 +105,7 @@ What [`deploy/kubernetes/freescout.yaml`](deploy/kubernetes/freescout.yaml) does
 
 The build copies every module of `modules/` into the image, and fails when `modules/` is empty. As in the nfrastack image, `/var/www/html/Modules` links to `/data/Modules`: modules can be installed and updated from *Manage » Modules*, and are kept when the container is recreated.
 
-At each start, the entrypoint replaces the bundled modules in `/data/Modules` with the image's version and leaves the other modules untouched. It links the public assets of every module, giving an empty `Public` folder to a module without assets; a module whose `Public` is a broken link or whose alias is invalid is reported and left unlinked. It then runs the migrations of the bundled modules with `module:migrate`; the interface migrates the modules it installs or updates. Activate each module once in *Manage » Modules*; the choice is stored in the database.
+At each start, the entrypoint replaces the bundled modules in `/data/Modules` with the image's version, removes those the image no longer bundles (marked by a `.bundled-module` file) and leaves the modules installed from the interface untouched. It links the public assets of every module, giving an empty `Public` folder to a module without assets; a module whose `Public` is a broken link or whose alias is invalid is reported and left unlinked. It then runs the migrations of the bundled modules with `module:migrate`; the interface migrates the modules it installs or updates. Activate each module once in *Manage » Modules*; the choice is stored in the database.
 
 **Updating the modules:** the `.github/workflows/update-modules.yml` workflow pins the latest commit of the modules every hour, then builds, tests, publishes and deploys the image in preprod. Run it right away with:
 
@@ -139,7 +139,7 @@ The `.github/workflows/build-test.yml` workflow runs these tests and publishes o
   - the admin login;
   - that no process runs as root;
   - that the modules are migrated and their assets linked, and that each of them can be activated;
-  - that a module added to `Modules/` as the interface does can be activated, and that after the container is recreated it keeps its assets link while a bundled module removed from the volume comes back, and a module whose assets cannot be linked is reported without stopping the start;
+  - that a module added to `Modules/` as the interface does can be activated, and that after the container is recreated it keeps its assets link while a bundled module removed from the volume comes back, a module the image no longer bundles is removed, and a module whose assets cannot be linked is reported without stopping the start;
   - that the code is read-only apart from the modules, that PHP placed in the public folders the runtime user writes is not executed, that the services' environment holds no secret and that the installer is blocked;
   - that Laravel's logs reach the container output once and whole, stack trace included, from php-fpm and from a command whose output is discarded as the scheduler does, and are not written to `/data`;
   - that after the container is recreated, the `APP_KEY` is kept and the admin is not created again.
