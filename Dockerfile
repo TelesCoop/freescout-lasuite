@@ -58,12 +58,14 @@ RUN apk upgrade --no-cache \
         /var/run/nginx \
         /var/run/php-fpm \
         /var/run/supervisord \
+        /var/run/freescout \
         /var/lib/nginx/tmp \
     && chown -R ${UID}:${GID} \
         /data \
         /var/run/nginx \
         /var/run/php-fpm \
         /var/run/supervisord \
+        /var/run/freescout \
         /var/lib/nginx
 
 # The code stays owned by root: the runtime user only writes Laravel's caches, the generated JS/CSS,

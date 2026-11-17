@@ -5,6 +5,7 @@ APP_DIR=/var/www/html
 DATA_DIR=/data
 ENV_FILE="${DATA_DIR}/.env"
 BUNDLED_MODULES_DIR=/usr/src/freescout-modules
+CONTAINER_OUTPUT=/var/run/freescout/output
 
 log() { printf '[entrypoint] %s\n' "$*"; }
 
@@ -44,6 +45,11 @@ resolve_file_secrets() {
     done <<EOF
 $(env | sed -n '/^[A-Za-z_][A-Za-z0-9_]*_FILE=/p')
 EOF
+}
+
+# The error_log of php.ini: the output of this process, which supervisord keeps once exec'd below.
+link_container_output() {
+    ln -sfn "/proc/$$/fd/1" "${CONTAINER_OUTPUT}"
 }
 
 seed_persistent_storage() {
@@ -102,7 +108,7 @@ configure_env() {
     set_env APP_TRUSTED_HOSTS "${app_host},localhost,127.0.0.1"
     set_env APP_TIMEZONE "${TIMEZONE:-UTC}"
     set_env APP_DISABLE_UPDATING true
-    # Laravel logs to stderr, which reaches the container output instead of an unrotated file in /data.
+    # Through PHP's error_log, which php.ini sends to the container output.
     set_env APP_LOG errorlog
     # FreeScout only logs errors by default.
     set_env APP_LOG_LEVEL debug
@@ -187,6 +193,7 @@ migrate_bundled_modules() {
     done
 }
 
+link_container_output
 resolve_file_secrets
 seed_persistent_storage
 sync_bundled_modules

@@ -213,7 +213,7 @@ log_entry_received() {
 }
 
 assert_laravel_logs_reach_the_container_output() {
-    local web_entries cli_entries
+    local web_entries
     # As root: the runtime user cannot write the code.
     docker exec -i -u 0 "${APP_CONTAINER}" sh -c "cat > ${LOG_PROBE_PATH}" <<<"${LOG_PROBE}"
     curl -fsS -o /dev/null "${APP_URL}/$(basename "${LOG_PROBE_PATH}")"
@@ -224,8 +224,9 @@ assert_laravel_logs_reach_the_container_output() {
     # The context is JSON: the line breaks of the stack trace stay escaped.
     grep -qF '[stacktrace]\n#0' <<<"${web_entries}" || fail "web log entry lacks its stack trace on its line"
 
-    cli_entries=$(docker exec "${APP_CONTAINER}" php "${LOG_PROBE_PATH}" 2>&1 >/dev/null)
-    grep -q 'e2e-log-probe-cli x*x end-of-entry' <<<"${cli_entries}" || fail "command line log entry not sent to stderr"
+    # As the scheduler runs its commands, output discarded.
+    docker exec "${APP_CONTAINER}" sh -c "php ${LOG_PROBE_PATH} >/dev/null 2>&1"
+    wait_until "the command line log entry in the container output" log_entry_received e2e-log-probe-cli
 
     docker exec -u 0 "${APP_CONTAINER}" rm "${LOG_PROBE_PATH}"
     if docker exec "${APP_CONTAINER}" grep -rqs e2e-log-probe /data/storage/logs; then

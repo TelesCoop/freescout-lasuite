@@ -10,7 +10,7 @@ A [FreeScout](https://freescout.net/) image that runs entirely without root, for
 - Secrets only live in `/data/.env`: the services start with an empty environment, so `DB_PASS`, `ADMIN_PASS` or `APP_KEY` cannot be read from it.
 - The web installer (`/install`), `install.php` and `tools.php` answer 404, and nginx does not disclose its version.
 - If a service keeps crashing, the container stops so the orchestrator restarts it.
-- nginx, php-fpm, the services and Laravel log to the container output. For Laravel, the entrypoint sets `APP_LOG=errorlog` and `APP_LOG_LEVEL=debug`, which `FREESCOUT_APP_LOG` and `FREESCOUT_APP_LOG_LEVEL` override; each entry fits on one line, stack trace included, up to 64 KiB.
+- nginx, php-fpm, the services and Laravel log to the container output. PHP writes its error log, hence Laravel's, to `/var/run/freescout/output`, which the entrypoint links to its own output, kept by supervisord: the logs of the commands run by the scheduler, which discards their output, reach it too. For Laravel, the entrypoint sets `APP_LOG=errorlog` and `APP_LOG_LEVEL=debug`, which `FREESCOUT_APP_LOG` and `FREESCOUT_APP_LOG_LEVEL` override; each entry fits on one line, stack trace included.
 - Persistent data lives in **`/data`**:
   - `.env`, which holds the `APP_KEY`;
   - `storage/`: attachments, sessions, the output of the last mail fetch;
@@ -141,7 +141,7 @@ The `.github/workflows/build-test.yml` workflow runs these tests and publishes o
   - that the modules are migrated and their assets linked, and that each of them can be activated;
   - that a module added to `Modules/` as the interface does can be activated, and that after the container is recreated it keeps its assets link while a bundled module removed from the volume comes back;
   - that the code is read-only apart from the modules, that the services' environment holds no secret and that the installer is blocked;
-  - that Laravel's logs reach the container output once and whole, stack trace included, from php-fpm and from the command line, and are not written to `/data`;
+  - that Laravel's logs reach the container output once and whole, stack trace included, from php-fpm and from a command whose output is discarded as the scheduler does, and are not written to `/data`;
   - that after the container is recreated, the `APP_KEY` is kept and the admin is not created again.
 - `tests/k8s.sh <image>` deploys the unmodified manifest to a [kind](https://kind.sigs.k8s.io/) cluster, in a namespace enforcing the `restricted` Pod Security standard. It waits for the deployment to be ready, restarts it on the same volume and checks that no service link leaked into `.env`.
 
