@@ -4,7 +4,7 @@ A [FreeScout](https://freescout.net/) image that runs entirely without root, for
 
 ## How it works
 
-- The FreeScout code, Composer dependencies included, is taken from the [nfrastack/container-freescout](https://github.com/nfrastack/container-freescout) image (`FREESCOUT_IMAGE` argument of the `Dockerfile`).
+- The FreeScout code, Composer dependencies included, is taken from the [nfrastack/container-freescout](https://github.com/nfrastack/container-freescout) image (first `FROM` of the `Dockerfile`).
 - It runs on a minimal Alpine runtime: nginx on port **8080**, php-fpm 8.5 with `intl` for localized dates, the queue worker and the scheduler, all managed by supervisord.
 - Every process runs as UID/GID **1000**. The application code and the server configuration are owned by root and read-only: the runtime user can only write to `/data`, Laravel's `bootstrap/cache`, the generated JS/CSS builds and the modules' assets links. The modules are the exception: they live in `/data/Modules`, so that they can be installed and updated from the interface.
 - Secrets only live in `/data/.env`: the services start with an empty environment, so `DB_PASS`, `ADMIN_PASS` or `APP_KEY` cannot be read from it.
@@ -121,7 +121,7 @@ Each image published from `main` is deployed in preprod: CI writes its tag in `e
 
 ## Upgrading FreeScout
 
-Change the nfrastack image tag **and digest** in the `FREESCOUT_IMAGE` argument of the `Dockerfile`, then push to `main`. CI tests and publishes the image.
+Change the nfrastack image tag **and digest** in the first `FROM` of the `Dockerfile`, or merge the Dependabot pull request that does, then push to `main`. CI tests and publishes the image.
 
 The build applies the patches of `docker/patches/` to the FreeScout code, and fails when one of them no longer applies: Laravel's `errorlog` handler, for instance, is patched to keep stack traces.
 

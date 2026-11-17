@@ -6,9 +6,7 @@ updates:
       interval: monthly
 
   - package-ecosystem: docker-compose
-    directories:
-      - /
-      - /examples
+    directory: /
     schedule:
       interval: monthly
 
