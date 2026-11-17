@@ -49,7 +49,8 @@ jobs:
 
       - name: Publish to GHCR
         id: publish
-        if: github.event_name != 'pull_request'
+        # Pull requests and runs started by hand on another branch build and test only.
+        if: github.ref == 'refs/heads/main'
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -62,7 +63,7 @@ jobs:
 
   deploy-preprod:
     needs: build-test-publish
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions: {}
     # Images published in a row reach the preprod in the same order.
