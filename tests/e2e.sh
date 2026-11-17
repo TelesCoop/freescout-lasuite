@@ -207,8 +207,9 @@ assert_hardened() {
     [ "$(docker exec "${APP_CONTAINER}" wget -qO- http://127.0.0.1:8081/fpm-ping)" = pong ] || fail "php-fpm ping failed"
 }
 
-web_log_entry_received() {
-    docker logs "${APP_CONTAINER}" 2>&1 | grep -q 'e2e-log-probe-fpm-fcgi'
+# Not grep -q: exiting at the first match would break the pipe of docker logs, and pipefail would report a failure.
+log_entry_received() {
+    docker logs "${APP_CONTAINER}" 2>&1 | grep -F -- "$1" >/dev/null
 }
 
 assert_laravel_logs_reach_the_container_output() {
@@ -216,7 +217,7 @@ assert_laravel_logs_reach_the_container_output() {
     # As root: the runtime user cannot write the code.
     docker exec -i -u 0 "${APP_CONTAINER}" sh -c "cat > ${LOG_PROBE_PATH}" <<<"${LOG_PROBE}"
     curl -fsS -o /dev/null "${APP_URL}/$(basename "${LOG_PROBE_PATH}")"
-    wait_until "the web log entry in the container output" web_log_entry_received
+    wait_until "the web log entry in the container output" log_entry_received e2e-log-probe-fpm-fcgi
     web_entries=$(docker logs "${APP_CONTAINER}" 2>&1 | grep 'e2e-log-probe-fpm-fcgi')
     [ "$(wc -l <<<"${web_entries}")" -eq 1 ] || fail "web log entry repeated in the container output: ${web_entries}"
     grep -q 'x end-of-entry' <<<"${web_entries}" || fail "web log entry truncated in the container output"
