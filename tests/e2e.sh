@@ -221,6 +221,8 @@ assert_laravel_logs_reach_the_container_output() {
     web_entries=$(docker logs "${APP_CONTAINER}" 2>&1 | grep 'e2e-log-probe-fpm-fcgi')
     [ "$(wc -l <<<"${web_entries}")" -eq 1 ] || fail "web log entry repeated in the container output: ${web_entries}"
     grep -q 'x end-of-entry' <<<"${web_entries}" || fail "web log entry truncated in the container output"
+    grep -qE '^\[[^]]+\] [a-z]+\.DEBUG: e2e-log-probe-fpm-fcgi' <<<"${web_entries}" \
+        || fail "web log entry not dated exactly once: ${web_entries:0:200}"
     # The context is JSON: the line breaks of the stack trace stay escaped.
     grep -qF '[stacktrace]\n#0' <<<"${web_entries}" || fail "web log entry lacks its stack trace on its line"
 

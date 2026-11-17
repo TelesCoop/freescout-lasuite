@@ -1,6 +1,6 @@
 --- a/overrides/laravel/framework/src/Illuminate/Log/Writer.php
 +++ b/overrides/laravel/framework/src/Illuminate/Log/Writer.php
-@@ -257,8 +257,15 @@
+@@ -257,8 +257,16 @@
      public function useErrorLog($level = 'debug', $messageType = ErrorLogHandler::OPERATING_SYSTEM)
      {
          $this->monolog->pushHandler(
@@ -8,7 +8,8 @@
 +            $handler = new ErrorLogHandler($messageType, $this->parseLevel($level))
          );
 +
-+        $format = '[%datetime%] %channel%.%level_name%: %message% %context% %extra%';
++        // PHP's error_log already prefixes each entry with its date.
++        $format = '%channel%.%level_name%: %message% %context% %extra%';
 +        $handler->setFormatter(tap(new LineFormatter($format, null, false, true), function ($formatter) {
 +            $formatter->includeStacktraces();
 +            // includeStacktraces() allows line breaks: each entry stays on one line, stack trace included.
