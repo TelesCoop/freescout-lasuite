@@ -163,8 +163,8 @@ assert_runs_unprivileged() {
         grep -qF -- "${program}" <<<"${process_list}" || fail "${program} is not running"
     done
 
-    docker exec "${APP_CONTAINER}" sh -c "grep -q '^error_log = /proc/1/fd/1' /etc/php*/php-fpm.conf" \
-        || fail "php-fpm error_log is not sent to the container output"
+    docker exec "${APP_CONTAINER}" sh -c "grep -q '^error_log = /proc/self/fd/2' /etc/php*/php-fpm.conf" \
+        || fail "php-fpm error_log is not sent to stderr"
     docker exec "${APP_CONTAINER}" php -r 'exit(extension_loaded("intl") && extension_loaded("Zend OPcache") ? 0 : 1);' \
         || fail "intl or OPcache extension missing"
 }
