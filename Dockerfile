@@ -86,6 +86,14 @@ RUN { ls /usr/src/freescout-modules/*/module.json >/dev/null 2>&1 \
         /var/www/html/public/css/builds \
         /var/www/html/public/modules
 
+# A patch that no longer applies to the FreeScout code fails the build.
+RUN --mount=type=bind,source=docker/patches,target=/tmp/patches \
+    apk add --no-cache --virtual .patch-deps patch \
+    && for patch_file in /tmp/patches/*.patch; do \
+        patch --directory=/var/www/html --strip=1 --forward --input="${patch_file}" || exit 1; \
+    done \
+    && apk del .patch-deps
+
 COPY docker/nginx/nginx.conf     /etc/nginx/nginx.conf
 COPY docker/nginx/freescout.conf /etc/nginx/http.d/default.conf
 COPY docker/nginx/health.conf    /etc/nginx/http.d/health.conf

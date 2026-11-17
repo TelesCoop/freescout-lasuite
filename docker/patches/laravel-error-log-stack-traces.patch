@@ -1,0 +1,19 @@
+--- a/overrides/laravel/framework/src/Illuminate/Log/Writer.php
++++ b/overrides/laravel/framework/src/Illuminate/Log/Writer.php
+@@ -257,8 +257,15 @@
+     public function useErrorLog($level = 'debug', $messageType = ErrorLogHandler::OPERATING_SYSTEM)
+     {
+         $this->monolog->pushHandler(
+-            new ErrorLogHandler($messageType, $this->parseLevel($level))
++            $handler = new ErrorLogHandler($messageType, $this->parseLevel($level))
+         );
++
++        $format = '[%datetime%] %channel%.%level_name%: %message% %context% %extra%';
++        $handler->setFormatter(tap(new LineFormatter($format, null, false, true), function ($formatter) {
++            $formatter->includeStacktraces();
++            // includeStacktraces() allows line breaks: each entry stays on one line, stack trace included.
++            $formatter->allowInlineLineBreaks(false);
++        }));
+     }
+ 
+     /**

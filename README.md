@@ -123,6 +123,8 @@ Each image published from `main` is deployed in preprod: CI writes its tag in `e
 
 Change the nfrastack image tag **and digest** in the `FREESCOUT_IMAGE` argument of the `Dockerfile`, then push to `main`. CI tests and publishes the image.
 
+The build applies the patches of `docker/patches/` to the FreeScout code, and fails when one of them no longer applies: Laravel's `errorlog` handler, for instance, is patched to keep stack traces.
+
 The base images and the GitHub actions are pinned by digest or commit SHA, so a re-published upstream tag cannot change the build. Get the digest of a tag with:
 
 ```sh
@@ -139,7 +141,7 @@ The `.github/workflows/build-test.yml` workflow runs these tests and publishes o
   - that the modules are migrated and their assets linked, and that each of them can be activated;
   - that a module added to `Modules/` as the interface does can be activated, and that after the container is recreated it keeps its assets link while a bundled module removed from the volume comes back;
   - that the code is read-only apart from the modules, that the services' environment holds no secret and that the installer is blocked;
-  - that Laravel's logs reach the container output once and whole, from php-fpm and from the command line, and are not written to `/data`;
+  - that Laravel's logs reach the container output once and whole, stack trace included, from php-fpm and from the command line, and are not written to `/data`;
   - that after the container is recreated, the `APP_KEY` is kept and the admin is not created again.
 - `tests/k8s.sh <image>` deploys the unmodified manifest to a [kind](https://kind.sigs.k8s.io/) cluster, in a namespace enforcing the `restricted` Pod Security standard. It waits for the deployment to be ready, restarts it on the same volume and checks that no service link leaked into `.env`.
 

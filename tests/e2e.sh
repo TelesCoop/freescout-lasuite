@@ -17,7 +17,7 @@ PROBE_MODULE_MANIFEST='{"name": "E2eProbe", "alias": "e2eprobe", "description": 
 "author": "e2e", "authorUrl": "https://example.com", "license": "AGPL-3.0", "keywords": [], "active": 0,
 "order": 0, "providers": [], "aliases": {}, "files": [], "requires": []}'
 LOG_PROBE_PATH=/var/www/html/public/e2e-log-probe.php
-# Logs a debug entry through Laravel as the application does, longer than php-fpm's default 1024 bytes as a stack trace often is.
+# Logs a debug entry through Laravel as an error report does: a long message and an exception.
 # shellcheck disable=SC2016 # $app belongs to the PHP code.
 LOG_PROBE='<?php
 require "/var/www/html/vendor/autoload.php";
@@ -26,7 +26,10 @@ $app->bootstrapWith([
     Illuminate\Foundation\Bootstrap\LoadEnvironmentVariables::class,
     Illuminate\Foundation\Bootstrap\LoadConfiguration::class,
 ]);
-$app->make("log")->debug("e2e-log-probe-" . PHP_SAPI . " " . str_repeat("x", 4096) . " end-of-entry");'
+$app->make("log")->debug(
+    "e2e-log-probe-" . PHP_SAPI . " " . str_repeat("x", 4096) . " end-of-entry",
+    ["exception" => new Exception("e2e-log-probe-exception")]
+);'
 COOKIE_JAR=$(mktemp)
 
 fail() {
@@ -217,6 +220,8 @@ assert_laravel_logs_reach_the_container_output() {
     web_entries=$(docker logs "${APP_CONTAINER}" 2>&1 | grep 'e2e-log-probe-fpm-fcgi')
     [ "$(wc -l <<<"${web_entries}")" -eq 1 ] || fail "web log entry repeated in the container output: ${web_entries}"
     grep -q 'x end-of-entry' <<<"${web_entries}" || fail "web log entry truncated in the container output"
+    # The context is JSON: the line breaks of the stack trace stay escaped.
+    grep -qF '[stacktrace]\n#0' <<<"${web_entries}" || fail "web log entry lacks its stack trace on its line"
 
     cli_entries=$(docker exec "${APP_CONTAINER}" php "${LOG_PROBE_PATH}" 2>&1 >/dev/null)
     grep -q 'e2e-log-probe-cli x*x end-of-entry' <<<"${cli_entries}" || fail "command line log entry not sent to stderr"
