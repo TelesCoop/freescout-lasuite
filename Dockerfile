@@ -106,6 +106,7 @@ COPY --chmod=755 docker/entrypoint.sh    /entrypoint.sh
 COPY --chmod=755 docker/worker.sh        /usr/local/bin/worker.sh
 COPY --chmod=755 docker/scheduler.sh     /usr/local/bin/scheduler.sh
 COPY --chmod=755 docker/exit-on-fatal.sh /usr/local/bin/exit-on-fatal.sh
+COPY --chmod=755 docker/module-aliases.php /usr/local/bin/module-aliases
 
 WORKDIR /var/www/html
 EXPOSE 8080

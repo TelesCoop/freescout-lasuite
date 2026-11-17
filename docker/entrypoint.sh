@@ -9,6 +9,8 @@ CONTAINER_OUTPUT=/var/run/freescout/output
 
 log() { printf '[entrypoint] %s\n' "$*"; }
 
+warn() { printf '[entrypoint] WARNING: %s\n' "$*" >&2; }
+
 fail() {
     printf '[entrypoint] ERROR: %s\n' "$*" >&2
     exit 1
@@ -74,13 +76,20 @@ sync_bundled_modules() {
 # public/ belongs to the image, so the links lost with the previous container are recreated.
 # A module without assets gets an empty Public folder, which git does not keep: its link must lead somewhere.
 link_module_assets() {
-    local module_manifest module_dir module_alias
-    for module_manifest in "${APP_DIR}"/Modules/*/module.json; do
-        module_dir=$(dirname "${module_manifest}")
-        module_alias=$(php -r 'echo json_decode(file_get_contents($argv[1]))->alias;' -- "${module_manifest}")
+    local module_aliases module_dir module_alias
+    module_aliases=$(module-aliases "${APP_DIR}/Modules")
+    while IFS="$(printf '\t')" read -r module_dir module_alias; do
+        [ -n "${module_dir}" ] || continue
+        # A module installed from the interface can bring a broken Public link: the container still starts.
+        if [ -L "${module_dir}/Public" ] && [ ! -d "${module_dir}/Public" ]; then
+            warn "${module_dir}/Public is a broken link: the assets of module ${module_alias} are not published"
+            continue
+        fi
         mkdir -p "${module_dir}/Public"
         ln -sfn "${module_dir}/Public" "${APP_DIR}/public/modules/${module_alias}"
-    done
+    done <<EOF
+${module_aliases}
+EOF
 }
 
 configure_env() {

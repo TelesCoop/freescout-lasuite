@@ -257,9 +257,7 @@ activate_module() {
 # Activation clears the caches and regenerates the JS/CSS builds, so it exercises every path left writable.
 assert_modules_activate() {
     local module_aliases module_alias csrf_token dashboard_status
-    # shellcheck disable=SC2016 # $manifest belongs to the PHP code.
-    module_aliases=$(docker exec "${APP_CONTAINER}" php -r \
-        'foreach (glob("/var/www/html/Modules/*/module.json") as $manifest) { echo json_decode(file_get_contents($manifest))->alias, "\n"; }')
+    module_aliases=$(docker exec "${APP_CONTAINER}" module-aliases /var/www/html/Modules | cut -f2)
     [ -n "${module_aliases}" ] || fail "no module in the image"
     csrf_token=$(fetch_modules_csrf_token)
     for module_alias in ${module_aliases}; do
@@ -279,6 +277,24 @@ assert_module_installs_like_the_interface() {
     activate_module e2eprobe "${csrf_token}"
     docker exec "${APP_CONTAINER}" test -d /var/www/html/public/modules/e2eprobe \
         || fail "assets of the module installed like the interface are not linked"
+}
+
+# Installed from the interface, these modules cannot have their assets linked: the container must start anyway.
+add_unlinkable_modules() {
+    docker exec -i "${APP_CONTAINER}" sh -c \
+        'mkdir -p /var/www/html/Modules/E2eLoop && ln -s Public /var/www/html/Modules/E2eLoop/Public &&
+        cat > /var/www/html/Modules/E2eLoop/module.json' \
+        <<<"$(sed 's/E2eProbe/E2eLoop/; s/e2eprobe/e2eloop/' <<<"${PROBE_MODULE_MANIFEST}")"
+    docker exec -i "${APP_CONTAINER}" sh -c \
+        'mkdir -p /var/www/html/Modules/E2eNoAlias && cat > /var/www/html/Modules/E2eNoAlias/module.json' \
+        <<<"$(sed 's/E2eProbe/E2eNoAlias/; s/"alias": "e2eprobe", //' <<<"${PROBE_MODULE_MANIFEST}")"
+}
+
+assert_unlinkable_modules_reported() {
+    local start_logs="$1"
+    grep -q 'E2eLoop/Public is a broken link' <<<"${start_logs}" || fail "module with a broken Public link not reported"
+    grep -q 'no valid alias in .*E2eNoAlias' <<<"${start_logs}" || fail "module without alias not reported"
+    docker exec "${APP_CONTAINER}" rm -rf /var/www/html/Modules/E2eLoop /var/www/html/Modules/E2eNoAlias
 }
 
 assert_writable_folders_execute_no_php() {
@@ -316,6 +332,7 @@ assert_laravel_logs_reach_the_container_output
 assert_modules_activate
 assert_module_installs_like_the_interface
 assert_writable_folders_execute_no_php
+add_unlinkable_modules
 app_key=$(docker exec "${APP_CONTAINER}" grep '^APP_KEY=' /data/.env)
 docker exec "${APP_CONTAINER}" rm -rf /var/www/html/Modules/Presence
 
@@ -324,6 +341,7 @@ docker rm -f "${APP_CONTAINER}" >/dev/null
 start_app
 assert_modules_kept_on_recreation
 second_start_logs=$(docker logs "${APP_CONTAINER}" 2>&1)
+assert_unlinkable_modules_reported "${second_start_logs}"
 if grep -q 'creating admin' <<<"${second_start_logs}"; then
     fail "admin re-created on restart"
 fi
