@@ -33,7 +33,7 @@ services:
     restart: unless-stopped
 
   freescout-db:
-    image: mariadb:11
+    image: mariadb:13
     container_name: freescout-db
     volumes:
       - freescout-db:/var/lib/mysql
