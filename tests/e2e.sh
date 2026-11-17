@@ -281,6 +281,17 @@ assert_module_installs_like_the_interface() {
         || fail "assets of the module installed like the interface are not linked"
 }
 
+assert_writable_folders_execute_no_php() {
+    local web_path status
+    for web_path in modules/e2eprobe js/builds css/builds; do
+        docker exec "${APP_CONTAINER}" sh -c "echo '<?php echo 1;' > /var/www/html/public/${web_path}/e2e-probe.php" \
+            || fail "the runtime user cannot write to public/${web_path}"
+        status=$(curl -s -o /dev/null -w '%{http_code}' "${APP_URL}/${web_path}/e2e-probe.php")
+        [ "${status}" = 404 ] || fail "/${web_path}/e2e-probe.php returned ${status}, expected 404"
+        docker exec "${APP_CONTAINER}" rm "/var/www/html/public/${web_path}/e2e-probe.php"
+    done
+}
+
 assert_modules_kept_on_recreation() {
     docker exec "${APP_CONTAINER}" test -f /var/www/html/Modules/Presence/module.json \
         || fail "bundled module removed from the volume was not restored"
@@ -304,6 +315,7 @@ assert_hardened
 assert_laravel_logs_reach_the_container_output
 assert_modules_activate
 assert_module_installs_like_the_interface
+assert_writable_folders_execute_no_php
 app_key=$(docker exec "${APP_CONTAINER}" grep '^APP_KEY=' /data/.env)
 docker exec "${APP_CONTAINER}" rm -rf /var/www/html/Modules/Presence
 
