@@ -82,6 +82,12 @@ sync_bundled_modules() {
     done
 }
 
+# The core caches the list of the active modules, which can name a module removed above: the first command would fail
+# to load it. freescout:after-app-update empties this cache too, but only once the commands before it have run.
+clear_application_cache() {
+    rm -rf "${DATA_DIR}/storage/framework/cache/data"
+}
+
 # public/ belongs to the image, so the links lost with the previous container are recreated.
 # A module without assets gets an empty Public folder, which git does not keep: its link must lead somewhere.
 link_module_assets() {
@@ -215,6 +221,7 @@ link_container_output
 resolve_file_secrets
 seed_persistent_storage
 sync_bundled_modules
+clear_application_cache
 link_module_assets
 configure_env
 ensure_app_key

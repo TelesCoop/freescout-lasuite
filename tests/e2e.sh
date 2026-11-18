@@ -16,6 +16,17 @@ DB_PASS='db pass #1 & more'
 PROBE_MODULE_MANIFEST='{"name": "E2eProbe", "alias": "e2eprobe", "description": "", "version": "1.0.0",
 "author": "e2e", "authorUrl": "https://example.com", "license": "AGPL-3.0", "keywords": [], "active": 0,
 "order": 0, "providers": [], "aliases": {}, "files": [], "requires": []}'
+DROPPED_MODULE_MANIFEST=$(sed 's/E2eProbe/E2eDropped/; s/e2eprobe/e2edropped/;
+    s/"providers": \[\]/"providers": ["Modules\\\\E2eDropped\\\\Providers\\\\E2eDroppedServiceProvider"]/' <<<"${PROBE_MODULE_MANIFEST}")
+DROPPED_MODULE_PROVIDER='<?php
+namespace Modules\E2eDropped\Providers;
+
+class E2eDroppedServiceProvider extends \Illuminate\Support\ServiceProvider
+{
+    public function register()
+    {
+    }
+}'
 LOG_PROBE_PATH=/var/www/html/public/e2e-log-probe.php
 # Logs a debug entry through Laravel as an error report does: a long message and an exception.
 # shellcheck disable=SC2016 # $app belongs to the PHP code.
@@ -299,12 +310,16 @@ assert_unlinkable_modules_reported() {
     docker exec "${APP_CONTAINER}" rm -rf /var/www/html/Modules/E2eLoop /var/www/html/Modules/E2eNoAlias
 }
 
-# As left by a previous image that bundled it.
+# As left by a previous image that bundled it: with a provider, and active.
 add_module_dropped_from_the_image() {
     docker exec -i "${APP_CONTAINER}" sh -c \
-        'mkdir -p /var/www/html/Modules/E2eDropped && touch /var/www/html/Modules/E2eDropped/.bundled-module &&
-        cat > /var/www/html/Modules/E2eDropped/module.json' \
-        <<<"$(sed 's/E2eProbe/E2eDropped/; s/e2eprobe/e2edropped/' <<<"${PROBE_MODULE_MANIFEST}")"
+        'mkdir -p /var/www/html/Modules/E2eDropped/Providers && touch /var/www/html/Modules/E2eDropped/.bundled-module &&
+        cat > /var/www/html/Modules/E2eDropped/module.json' <<<"${DROPPED_MODULE_MANIFEST}"
+    docker exec -i "${APP_CONTAINER}" sh -c \
+        'cat > /var/www/html/Modules/E2eDropped/Providers/E2eDroppedServiceProvider.php' <<<"${DROPPED_MODULE_PROVIDER}"
+    activate_module e2edropped "$(fetch_modules_csrf_token)"
+    # As the instance keeps running: the cached list of the modules then holds it, active.
+    docker exec "${APP_CONTAINER}" php /var/www/html/artisan freescout:clear-cache >/dev/null
 }
 
 assert_writable_folders_execute_no_php() {
