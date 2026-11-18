@@ -10,9 +10,10 @@ DB_CONTAINER=freescout-e2e-db
 NETWORK=freescout-e2e
 VOLUME=freescout-e2e-data
 ADMIN_EMAIL=admin@example.com
-# Spaces, '#' and '&' exercise the quoting of values written to .env.
+# Spaces, '#', '&' and '${…}' exercise the quoting of values written to .env.
 ADMIN_PASS='Admin pass #1 & more'
-DB_PASS='db pass #1 & more'
+# shellcheck disable=SC2016 # ${HOME} is part of the password.
+DB_PASS='db pass #1 & ${HOME} more'
 PROBE_MODULE_MANIFEST='{"name": "E2eProbe", "alias": "e2eprobe", "description": "", "version": "1.0.0",
 "author": "e2e", "authorUrl": "https://example.com", "license": "AGPL-3.0", "keywords": [], "active": 0,
 "order": 0, "providers": [], "aliases": {}, "files": [], "requires": []}'

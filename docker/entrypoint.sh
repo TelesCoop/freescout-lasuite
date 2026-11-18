@@ -30,9 +30,10 @@ del_env() {
     sed -i "/^${escaped_key}=/d" "${ENV_FILE}"
 }
 
+# As FreeScout writes .env: its reader would otherwise replace "${NAME}" with the variable NAME.
 set_env() {
     local escaped_value
-    escaped_value=$(printf '%s' "$2" | sed 's/[\\"]/\\&/g')
+    escaped_value=$(printf '%s' "$2" | sed -e 's/[\\"]/\\&/g' -e 's/\${/\\${/g')
     del_env "$1"
     printf '%s="%s"\n' "$1" "${escaped_value}" >> "${ENV_FILE}"
 }
