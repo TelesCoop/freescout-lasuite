@@ -1,5 +1,5 @@
 # Written in full, without an ARG, for Dependabot to update it.
-FROM ghcr.io/nfrastack/container-freescout:2.2.21-php8.5-alpine_3.24@sha256:5a1bc12791842f4b060adc524d97be206a2b057c2fadfc643dc9dfcd9b63bbf0 AS source
+FROM ghcr.io/nfrastack/container-freescout:2.2.25-php8.5-alpine_3.24@sha256:0c27d6c21f7f48fb5b53f6302f8e33c97aec75f5f687fe5b19e7b9842d7c59f5 AS source
 
 FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 
