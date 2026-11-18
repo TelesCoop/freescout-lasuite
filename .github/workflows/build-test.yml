@@ -61,13 +61,13 @@ jobs:
           done
           echo "image-tag=sha-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
 
-  deploy-preprod:
+  deploy:
     needs: build-test-publish
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions: {}
-    # Images published in a row reach the preprod in the same order.
-    concurrency: deploy-preprod
+    # Images published in a row reach the preprod and the production in the same order.
+    concurrency: deploy
     steps:
       # The deploy key only grants write access to the infrastructure repository, which ArgoCD deploys.
       - name: Checkout the infrastructure
@@ -76,17 +76,19 @@ jobs:
           repository: numerique-gouv/infra-freescout
           ssh-key: ${{ secrets.INFRA_DEPLOY_KEY }}
 
-      - name: Deploy the image in preprod
+      - name: Deploy the image in preprod and production
         env:
           IMAGE_TAG: ${{ needs.build-test-publish.outputs.image-tag }}
-          VALUES: env/preprod/values.yaml.gotmpl
         run: |
-          sed -i -E "/^image:/,/^[^ ]/ s/^(  tag: ).*/\1${IMAGE_TAG}/" "${VALUES}"
-          grep -qx "  tag: ${IMAGE_TAG}" "${VALUES}" || { echo "No image tag found in ${VALUES}" >&2; exit 1; }
+          for environment in preprod prod; do
+            values="env/${environment}/values.yaml.gotmpl"
+            sed -i -E "/^image:/,/^[^ ]/ s/^(  tag: ).*/\1${IMAGE_TAG}/" "${values}"
+            grep -qx "  tag: ${IMAGE_TAG}" "${values}" || { echo "No image tag found in ${values}" >&2; exit 1; }
+          done
           if git diff --quiet; then
-            echo "The preprod already runs ${IMAGE_TAG}"
+            echo "The preprod and the production already run ${IMAGE_TAG}"
             exit 0
           fi
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -am "chore: deploy the image ${IMAGE_TAG} in preprod"
+            commit -am "chore: deploy the image ${IMAGE_TAG} in preprod and production"
           git push

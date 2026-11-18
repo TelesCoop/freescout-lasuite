@@ -41,7 +41,7 @@ jobs:
           echo "updated=true" >> "${GITHUB_OUTPUT}"
 
       # The push above, made with the workflow token, does not trigger the build.
-      - name: Build, test, publish and deploy the image in preprod
+      - name: Build, test, publish and deploy the image in preprod and production
         if: steps.pin.outputs.updated == 'true'
         env:
           GH_TOKEN: ${{ github.token }}

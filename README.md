@@ -107,7 +107,7 @@ The build copies every module of `modules/` into the image, and fails when `modu
 
 At each start, the entrypoint replaces the bundled modules in `/data/Modules` with the image's version, removes those the image no longer bundles (marked by a `.bundled-module` file) and leaves the modules installed from the interface untouched. It links the public assets of every module, giving an empty `Public` folder to a module without assets; a module whose `Public` is a broken link or whose alias is invalid is reported and left unlinked. It then runs the migrations of the bundled modules with `module:migrate`; the interface migrates the modules it installs or updates. Activate each module once in *Manage » Modules*; the choice is stored in the database.
 
-**Updating the modules:** the `.github/workflows/update-modules.yml` workflow pins the latest commit of the modules every hour, then builds, tests, publishes and deploys the image in preprod. Run it right away with:
+**Updating the modules:** the `.github/workflows/update-modules.yml` workflow pins the latest commit of the modules every hour, then builds, tests, publishes and deploys the image in preprod and production. Run it right away with:
 
 ```sh
 gh workflow run update-modules.yml
@@ -115,9 +115,9 @@ gh workflow run update-modules.yml
 
 CI reads the modules repository with a read-only deploy key, stored in the `MODULES_DEPLOY_KEY` secret of this repository.
 
-## Preprod deployment
+## Deployment
 
-Each image published from `main` is deployed in preprod: CI writes its tag in `env/preprod/values.yaml.gotmpl` of the [numerique-gouv/infra-freescout](https://github.com/numerique-gouv/infra-freescout) repository, which ArgoCD deploys. It pushes with a deploy key allowed to write to that repository only, stored in the `INFRA_DEPLOY_KEY` secret of this repository. The production tag is updated by hand, once the image is checked in preprod.
+Each image published from `main` is deployed in preprod and production: CI writes its tag in `env/preprod/values.yaml.gotmpl` and `env/prod/values.yaml.gotmpl` of the [numerique-gouv/infra-freescout](https://github.com/numerique-gouv/infra-freescout) repository, which ArgoCD deploys. It pushes both in a single commit, with a deploy key allowed to write to that repository only, stored in the `INFRA_DEPLOY_KEY` secret of this repository.
 
 ## Upgrading FreeScout
 
