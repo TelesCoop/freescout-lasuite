@@ -119,7 +119,7 @@ Each image published from `main` is deployed in preprod and production: CI write
 
 Change the nfrastack image tag **and digest** in the first `FROM` of the `Dockerfile`, or merge the Dependabot pull request that does, then push to `main`. CI tests and publishes the image.
 
-The build applies the patches of `docker/patches/` to the FreeScout code, and fails when one of them no longer applies: Laravel's `errorlog` handler, for instance, is patched to keep stack traces.
+The build applies the patches of `docker/patches/` to the FreeScout code, and fails when one of them no longer applies: Laravel's `errorlog` handler is patched to keep stack traces, and the modules manager to bear a module without alias, which would otherwise break every page on PHP 8.5.
 
 The base images and the GitHub actions are pinned by digest or commit SHA, so a re-published upstream tag cannot change the build. Get the digest of a tag with:
 

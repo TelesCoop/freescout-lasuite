@@ -1,0 +1,12 @@
+--- a/overrides/nwidart/laravel-modules/src/Repository.php
++++ b/overrides/nwidart/laravel-modules/src/Repository.php
+@@ -416,7 +416,8 @@
+     public function findByAlias($alias)
+     {
+         foreach ($this->all() as $module) {
+-            if (strtolower($module->getAlias()) === $alias) {
++            // A module without alias, installed from the interface, would otherwise break every page on PHP 8.1+.
++            if (strtolower((string) $module->getAlias()) === $alias) {
+                 //if ($module->getAlias() === $alias) {
+                 return $module;
+             }
