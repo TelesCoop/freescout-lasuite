@@ -123,6 +123,10 @@ app_running() {
     [ "$(docker inspect -f '{{.State.Running}}' "${APP_CONTAINER}")" = true ]
 }
 
+program_running() {
+    grep -qF -- "$1" <<<"$(docker exec "${APP_CONTAINER}" ps -eo args=)"
+}
+
 login_page_ready() {
     app_running || fail "${APP_CONTAINER} exited"
     curl -fs -o /dev/null "${APP_URL}/login"
@@ -171,8 +175,9 @@ assert_runs_unprivileged() {
     process_list=$(docker exec "${APP_CONTAINER}" ps -eo uid=,args=)
     root_processes=$(awk '$1 == 0' <<<"${process_list}")
     [ -z "${root_processes}" ] || fail "processes running as root: ${root_processes}"
+    # The worker exits when the first start restarts the queue, until supervisord starts it again.
     for program in 'nginx: master' 'php-fpm: master' 'queue:work' 'scheduler.sh'; do
-        grep -qF -- "${program}" <<<"${process_list}" || fail "${program} is not running"
+        wait_until "${program}" program_running "${program}"
     done
 
     docker exec "${APP_CONTAINER}" sh -c "grep -q '^error_log = /proc/self/fd/2' /etc/php*/php-fpm.conf" \
