@@ -42,6 +42,38 @@ $app->make("log")->debug(
     "e2e-log-probe-" . PHP_SAPI . " " . str_repeat("x", 4096) . " end-of-entry",
     ["exception" => new Exception("e2e-log-probe-exception")]
 );'
+# Receives an email as the fetch command does, without IMAP server, in a new mailbox: prints the mailbox and the
+# conversation ids. Read from the standard input, the script has no file which route() could build URLs from.
+# shellcheck disable=SC2016 # $app and the others belong to the PHP code.
+RECEIVED_EMAIL_PROBE='<?php
+require "/var/www/html/vendor/autoload.php";
+$app = require "/var/www/html/bootstrap/app.php";
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$mailbox = new App\Mailbox();
+$mailbox->name = "E2E";
+$mailbox->email = "e2e@example.com";
+$mailbox->save();
+$mailbox->users()->sync(App\User::pluck("id"));
+$mailbox->syncPersonalFolders();
+new Webklex\PHPIMAP\ClientManager(config("imap"));
+$message = Webklex\PHPIMAP\Message::fromString("From: customer@example.com\nTo: e2e@example.com\nSubject: E2E probe\n"
+    . "Message-ID: <e2e-probe@example.com>\nContent-Type: text/plain; charset=utf-8\n\nHello");
+$fetch_emails = new class() extends App\Console\Commands\FetchEmails {
+    public function __construct()
+    {
+        parent::__construct();
+        $this->output = new Illuminate\Console\OutputStyle(
+            new Symfony\Component\Console\Input\ArrayInput([]),
+            new Symfony\Component\Console\Output\NullOutput()
+        );
+    }
+
+    public function setSeen($message, $mailbox)
+    {
+    }
+};
+$fetch_emails->processMessage($message, "e2e-probe@example.com", $mailbox, [$mailbox]);
+echo $mailbox->id, " ", App\Thread::where("message_id", "e2e-probe@example.com")->firstOrFail()->conversation_id;'
 COOKIE_JAR=$(mktemp)
 
 fail() {
@@ -286,6 +318,20 @@ assert_modules_activate() {
     [ "${dashboard_status}" = 200 ] || fail "GET / after the modules activation returned ${dashboard_status}"
 }
 
+# The module tests run on PHP 8.3: the image, on PHP 8.5, may deprecate a use of theirs, which FreeScout turns into a
+# server error on the pages they hook into.
+assert_pages_render_with_the_modules() {
+    local probe_output mailbox_id conversation_id page_url page
+    probe_output=$(docker exec -i "${APP_CONTAINER}" php <<<"${RECEIVED_EMAIL_PROBE}") \
+        || fail "the email of the pages check was not received: ${probe_output}"
+    read -r mailbox_id conversation_id <<<"${probe_output}"
+    for page_url in "${APP_URL}/mailbox/${mailbox_id}" "${APP_URL}/conversation/${conversation_id}"; do
+        page=$(curl -fsS -L -b "${COOKIE_JAR}" "${page_url}") \
+            || fail "GET ${page_url} with every module active failed"
+        grep -qF 'E2E probe' <<<"${page}" || fail "GET ${page_url} with every module active did not show the email"
+    done
+}
+
 # Installing from Manage » Modules extracts the module into Modules/ as the runtime user, then activates it.
 assert_module_installs_like_the_interface() {
     local csrf_token
@@ -364,6 +410,7 @@ assert_modules_installed
 assert_hardened
 assert_laravel_logs_reach_the_container_output
 assert_modules_activate
+assert_pages_render_with_the_modules
 assert_module_installs_like_the_interface
 assert_writable_folders_execute_no_php
 add_unlinkable_modules
